@@ -1,0 +1,85 @@
+#include <SimpleTimer.h>
+#include <Stepper.h>
+
+int time = 0;
+const int outputOn = 7;
+const int outputDirection = 8;
+const int sensorPin = 0;
+bool retracting = false;
+SimpleTimer timer;
+int currentPosition = 0;
+int stepsToLower = 100;
+int moveDirection = 1;
+bool moving = false;
+Stepper actuator(24, 8, 9, 10, 11);
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(13, OUTPUT);
+  pinMode(sensorPin, INPUT);
+  pinMode(outputOn, OUTPUT);
+  pinMode(outputDirection, OUTPUT);
+  currentPosition = analogRead(sensorPin); 
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  if (Serial.available() > 0) {
+    char incomingByte = Serial.read();
+    String input = "";
+    while (incomingByte != ';') {
+      Serial.print("I received: ");
+      Serial.println(incomingByte, DEC);
+      input += incomingByte;
+      // read the incoming byte:
+      incomingByte = Serial.read();
+      delay(200);
+    }
+    Serial.print("In total I got: ");
+    Serial.println(input); //check that this works correctly then set time equal to it.
+    moving == !moving; 
+  }
+  if (moving == true){
+    Serial.print("running");
+    actuator.step(1*moveDirection);
+    currentPosition += moveDirection;
+  }
+  if (time>0){ // make sure to double check that you can't set double timers.
+    timer.deleteTimer(1);
+    timer.setTimeout(time, timerDone);
+    time = 0;
+  }
+  if (retracting == true){
+    if (currentPosition >= 1000){ //replace 1000 with max position
+      stopMove();
+    }
+  }
+}
+
+void timerDone() {
+  digitalWrite(13, HIGH);
+  Serial.print("Timer Done");
+  moving = false;
+}
+
+void startMove(bool up){
+  // Digital write to two relay pin to move up and down
+  if (up==true){
+    digitalWrite(outputDirection, HIGH);//digital writes should be redone
+    moveDirection = 1;
+  }
+  digitalWrite(outputOn, HIGH);
+  moveDirection = -1;
+}
+
+void stopMove() {
+  digitalWrite(outputOn, LOW);//digital writes should be redone
+  digitalWrite(outputDirection, LOW);
+  moving = false;
+}
+
+void retract(){
+  startMove(false);
+  retracting = true;
+}
