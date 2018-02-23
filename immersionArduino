@@ -10,6 +10,7 @@ SimpleTimer timer;
 int currentPosition = 0;
 int stepsToLower = 100;
 int moveDirection = 1;
+int maxPosition = 1000;
 bool moving = false;
 Stepper actuator(24, 8, 9, 10, 11);
 
@@ -20,45 +21,49 @@ void setup() {
   pinMode(outputOn, OUTPUT);
   pinMode(outputDirection, OUTPUT);
   currentPosition = analogRead(sensorPin); 
+  Serial.begin(9600);
+  Serial.println("starting");
 
 }
 
 void loop() {
+  timer.run();
   // put your main code here, to run repeatedly:
   if (Serial.available() > 0) {
-    char incomingByte = Serial.read();
-    String input = "";
-    while (incomingByte != ';') {
-      Serial.print("I received: ");
-      Serial.println(incomingByte, DEC);
-      input += incomingByte;
-      // read the incoming byte:
-      incomingByte = Serial.read();
-      delay(200);
+    String input = Serial.readString();
+    Serial.print("I received: ");
+    Serial.println(input);
+    moving = !moving; 
+    Serial.println(moving);
+    time = input.toInt();
+    if (time < 0){
+      retracting = true;
+      time = time *-1;
     }
-    Serial.print("In total I got: ");
-    Serial.println(input); //check that this works correctly then set time equal to it.
-    moving == !moving; 
+    Serial.println(time);
   }
   if (moving == true){
-    Serial.print("running");
+    if(currentPosition % 1000 == 0) {
+      Serial.print("running");
+     }
     actuator.step(1*moveDirection);
     currentPosition += moveDirection;
   }
   if (time>0){ // make sure to double check that you can't set double timers.
-    timer.deleteTimer(1);
+    //timer.deleteTimer(1);  causes compile error
     timer.setTimeout(time, timerDone);
     time = 0;
   }
   if (retracting == true){
-    if (currentPosition >= 1000){ //replace 1000 with max position
+    if (currentPosition >= maxPosition-10){ //replace 1000 with max position
+      Serial.println("stopping at end");
       stopMove();
     }
   }
 }
 
 void timerDone() {
-  digitalWrite(13, HIGH);
+  //digitalWrite(13, HIGH);
   Serial.print("Timer Done");
   moving = false;
 }
@@ -77,6 +82,7 @@ void stopMove() {
   digitalWrite(outputOn, LOW);//digital writes should be redone
   digitalWrite(outputDirection, LOW);
   moving = false;
+  retracting = false;
 }
 
 void retract(){
