@@ -15,7 +15,7 @@ int rotationSpeed = 160;
 long destinationPosition = 1800;
 long betweenSteps = 1;
 bool moving = false;
-int maxSpeed = 360; //this seems to be safde but I'e accidentally taken it up to 460 and it worked fine with the acceleration
+int maxSpeed = 360; //this seems to be safe but I've accidentally taken it up to 460 and it worked fine with the acceleration
 Stepper actuator(3200, 8,9);
 
 void setup() {
@@ -71,18 +71,9 @@ void loop() {
       moving = false;
       currentPosition = 0;
     } else if (input.charAt(0) == 't'){
-      moveDirection = 1;
-      destinationPosition = 193;
       input = input.substring(1,input.length());
       int moveTime = input.toInt(); //toInt apparently returns a long according to forums
-      if (moveTime <40) {
-        moveTime = 40;
-      }
-      maxSpeed = 153*60/(moveTime-10)*3/2;
-      if (maxSpeed >360) {
-        maxSpeed = 360;
-      }
-      //read time input and set max rpms as well as destination position at end
+      timedMove(moveTime);
     }
     else if (input.charAt(0) == 's'){
       moving = false;
@@ -140,6 +131,25 @@ void timerDone() {
   moving = false;
 }
 
+void timedMove(int moveTime) {
+  moving = true;
+  moveDirection = 1;
+  destinationPosition = 193;
+  if (currentPosition >= maxPosition -5){
+    moveDirection = -1;
+    destinationPosition = 0;
+  }
+  /*if (moveTime <40) { //better covered by maxSpeed
+    moveTime = 40;
+  }*/
+  maxSpeed = (Math.abs(destinationPosition-currentPosition)-40)*60/(moveTime-10)*3/2;
+  if (maxSpeed >360) {
+    maxSpeed = 360;
+  }
+  //read time input and set max rpms as well as destination position at end
+}
+
+/*
 void startMove(bool up){
   // Digital write to two relay pin to move up and down
   if (up==true){
@@ -160,4 +170,4 @@ void stopMove() {
 void retract(){
   startMove(false);
   retracting = true;
-}
+}*/
