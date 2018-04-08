@@ -112,13 +112,16 @@ uint16_t buttoncolors[7] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
 
 //break between GUI and controls
 
-long timeToMove = 0; //overflows if in milliseconds
+long timeToMove = 0; //total move time in seconds
+long timePerMove = 800; // in milliseconds
+long maxTimePerMove = 500; //in milliseconds
 bool retracting = false;
 SimpleTimer timer;
 long currentPosition = 0;
-int stepsToLower = 100;
+int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
-long maxPosition = 193*2;
+//long maxPosition = 193*2 // old half rotation position
+long maxPosition = 38600;
 int rotationSpeed = 160;
 long destinationPosition = 1800;
 long betweenSteps = 1;
@@ -282,6 +285,8 @@ void loop() {
     }
   }
   if (Serial.available() > 0) {
+    timePerMove = 800; // in milliseconds
+    maxTimePerMove = 500; //in milliseconds
     maxSpeed = 360;
     rotationSpeed = 160;
     String input = Serial.readString();
@@ -305,7 +310,8 @@ void loop() {
         //retracting = true;
         moveDirection = -1;
         if (overide == true){
-          currentPosition = 100000;
+          currentPosition = 100000;//note after the change overide will only move it 1/10th of the way down; 
+          //I think this is a fine change
         }
       } else{
         moveDirection = 1;
@@ -349,6 +355,33 @@ void loop() {
     }
   }
   if (moving == true){
+    if (moveDirection == 1) {
+      digitalWrite(47, HIGH);
+    } else {
+      digitalWrite(47, LOW);
+    }
+    for(int i = 0; i < 386; i++) {
+      digitalWrite(49,HIGH); //Trigger one step forward
+      delayMicroseconds(timePerMove);
+      digitalWrite(49,LOW); //Pull step pin low so it can be triggered again
+      delayMicroseconds(timePerMove);
+    }
+    currentPosition += moveDirection*386;
+    if (timePerMove > maxTimePerMove) {
+      if (timePerMove >500) {
+        timePerMove -= 100;
+      } else if (timePerMove > 400) {
+        timePerMove -= 40;
+      } else if (timePerMove >300) {
+        timePerMove -= 20;
+      }
+    } else {
+      timePerMove = maxTimePerMove;
+    }
+    if ((moveDirection == -1 && (currentPosition < 150 || !(currentPosition > destinationPosition))) || (moveDirection == 1 && (currentPosition > (maxPosition -150) ||!(currentPosition < destinationPosition)))){
+      moving = false;
+    }
+    /*
     if (rotationSpeed < maxSpeed) {
         rotationSpeed += 15;
       actuator.setSpeed(rotationSpeed);
@@ -362,8 +395,8 @@ void loop() {
       actuator.setSpeed(rotationSpeed-100);
       moving = false;
     }
-    actuator.step(moveDirection*3200);
-    currentPosition += moveDirection;
+    actuator.step(moveDirection*3200);*/
+
    // delay(betweenSteps-1);
     //Serial.println(currentPosition);
   }
@@ -382,23 +415,37 @@ void timerDone() {
   moving = false;
 }
 
+
+//Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
 void timedMove(long moveTime) {
+  if (moveTime <30) {
+    moveTime = 30;
+  }
+  timePerMove = 800; // in milliseconds
+  maxTimePerMove = (moveTime*1000000/maxPosition/2);
   moving = true;
   moveDirection = 1;
   destinationPosition = maxPosition;
-  if (currentPosition >= (maxPosition -5)){
+  if (currentPosition >= (maxPosition - 5000)){
     moveDirection = -1;
     destinationPosition = 0;
   }
+  
+  
+  if (timePerMove < maxTimePerMove) {
+    timePerMove = maxTimePerMove;
+  }
+  
+  /*
   /*if (moveTime <40) { //better covered by maxSpeed
     moveTime = 40;
-  }*/
+  }* /
   maxSpeed = (abs(destinationPosition-currentPosition)-40)*60/(moveTime-10)*3/2;
   Serial.print("max speed: ");
   Serial.println(maxSpeed);
   if (maxSpeed >360) {
     //maxSpeed = 360;
-  }
+  }*/
   //read time input and set max rpms as well as destination position at end
 }
 
