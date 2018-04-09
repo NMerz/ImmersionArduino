@@ -261,7 +261,16 @@ void loop() {
 
         // Home button send it home
         if (b == 1) {
-          //TODO
+          //Holder code
+              timePerMove = 800; // in milliseconds
+          maxTimePerMove = 500; //in milliseconds
+          moving = true; 
+          destinationPosition = 0; //toInt apparently returns a long according to forums
+          if (destinationPosition < currentPosition){
+            moveDirection = -1;
+          } else{
+            moveDirection = 1;
+          }
         }
 
         // update the current text field
@@ -273,12 +282,12 @@ void loop() {
 
         // Stop button
         if (b == 2) {
-          moving = false;
-        }
+          moving = false; // note: at speeds like 1100 sec this is only checked ever 10 sec; faster speeds aren't a problem
+         }
         // we dont really check that the text field makes sense
         // just try to call
         if (b == 0) {
-          timedMove(time);
+          timedMove(time); //broke at 12xx move command while in middle of track when dad was playing with it
         }
         
       //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
