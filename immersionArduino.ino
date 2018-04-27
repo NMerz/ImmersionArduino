@@ -124,7 +124,7 @@ long currentPosition = 0;
 int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
 //long maxPosition = 193*2 // old half rotation position
-long maxPosition = 38600;
+long maxPosition = 38600*2;
 long homePosition = 0;
 int rotationSpeed = 160;
 long destinationPosition = 1800;
@@ -195,7 +195,7 @@ void timedMove(long moveTime) {
     }*/
   timePerMove = 800; // in milliseconds
   moveTime -= 5;
-  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2) / 2;
+  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2); //should be set instead to go set speed down then full speed up
   if (maxTimePerMove <= 350) {
     maxTimePerMove = 350;
   }
@@ -397,7 +397,7 @@ void loop() {
   }
   if (Serial.available() > 0) {
     timePerMove = 800; // in milliseconds
-    maxTimePerMove = 500; //in milliseconds
+    maxTimePerMove = 800; //in milliseconds; was 500
     maxSpeed = 360;
     rotationSpeed = 160;
     String input = Serial.readString();
@@ -472,7 +472,7 @@ void loop() {
     }
   }
   if (moving == true) {
-    Serial.println(currentPosition);
+    //Serial.println(currentPosition);
     if (moveDirection == 1) {
       digitalWrite(47, HIGH);
     } else {
@@ -503,6 +503,7 @@ void loop() {
         moveDirection = -1;
         destinationPosition = homePosition;
         timePerMove = 800;
+        maxTimePerMove = 800;
         delay(100);
       } else {
         moving = false;
