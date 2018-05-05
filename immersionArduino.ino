@@ -3,6 +3,7 @@
 #include <Elegoo_GFX.h> // Core graphics library
 #include <Elegoo_TFTLCD.h> // Hardware-specific library
 #include <TouchScreen.h>
+#include "SPI.h"
 
 // The control pins for the LCD can be assigned to any digital or
 // analog pins...but we'll use the analog pins as this allows us to
@@ -94,7 +95,27 @@ uint8_t textfield_i = 0;
 // We have a status line for like, is FONA working
 #define STATUS_X 10
 #define STATUS_Y 65
+// Note: You also have to connect GND, 5V/VIO and VM.
+//       A connection diagram can be found in the schematics.
+#define EN_PIN    31 //enable (CFG6)
+#define DIR_PIN   29 //direction
+#define STEP_PIN  27 //step
 
+#define CS_PIN   49 //chip select
+#define MOSI_PIN 51 //SDI/MOSI (ICSP: 4, Uno: 11, Mega: 51)
+#define MISO_PIN 50 //SDO/MISO (ICSP: 1, Uno: 12, Mega: 50)
+#define SCK_PIN  52 //CLK/SCK  (ICSP: 3, Uno: 13, Mega: 52)
+
+//TMC2130 registers
+#define WRITE_FLAG     (1<<7) //write flag
+#define READ_FLAG      (0<<7) //read flag
+#define REG_GCONF      0x00
+#define REG_GSTAT      0x01
+#define REG_IHOLD_IRUN 0x10
+#define REG_CHOPCONF   0x6C
+#define REG_COOLCONF   0x6D
+#define REG_DCCTRL     0x6E
+#define REG_DRVSTATUS  0x6F
 
 long time = 40;
 
@@ -104,20 +125,17 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 // a simpler declaration can optionally be used:
 // Elegoo_TFTLCD tft;
 
-Elegoo_GFX_Button buttons[9];
+Elegoo_GFX_Button buttons[10];
 
-char buttonlabels[9][5] = {"Move", "Home", "Stop", "+", "-", "+10", "-10", "Up", "Down"};
-uint16_t buttoncolors[9] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
-                            ILI9341_BLUE, ILI9341_BLUE,
-                            ILI9341_BLUE, ILI9341_BLUE,
-                            ILI9341_BLUE, ILI9341_BLUE
-                           };
+char buttonlabels[10][7] = {"Move", "Home", "Stop", "+", "-", "+10", "-10", "+2", "-2", "Bottom"};
+uint16_t buttoncolors[10] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
+                             ILI9341_BLUE, ILI9341_BLUE,
+                             ILI9341_BLUE, ILI9341_BLUE,
+                             ILI9341_BLUE, ILI9341_BLUE,
+                             ILI9341_DARKGREY
+                            };
 
 //break between GUI and controls
-
-
-//potential to home with SPI on Silent board
-
 
 long timeToMove = 0; //total move time in seconds
 long timePerMove = 800; // in milliseconds
@@ -128,7 +146,8 @@ long currentPosition = 0;
 int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
 //long maxPosition = 193*2 // old half rotation position
-long maxPosition = 38600 * 2;
+long trueMax = 38600;
+long maxPosition = trueMax;
 long homePosition = 0;
 int rotationSpeed = 160;
 long destinationPosition = 1800;
@@ -136,14 +155,79 @@ long betweenSteps = 1;
 int movementSubdivisions = 200;
 int moveSize = maxPosition / movementSubdivisions;
 bool moving = false;
+bool manual = false;
 int maxSpeed = 360; //this seems to be safe but I've accidentally taken it up to 460 and it worked fine with the acceleration
-Stepper actuator(3200, 49, 47);
+//Stepper actuator(3200, 49, 47);
+
+uint8_t tmc_write(uint8_t cmd, uint32_t data)
+{
+  uint8_t s;
+
+  digitalWrite(CS_PIN, LOW);
+
+  s = SPI.transfer(cmd);
+  SPI.transfer((data >> 24UL) & 0xFF) & 0xFF;
+  SPI.transfer((data >> 16UL) & 0xFF) & 0xFF;
+  SPI.transfer((data >> 8UL) & 0xFF) & 0xFF;
+  SPI.transfer((data >> 0UL) & 0xFF) & 0xFF;
+
+  digitalWrite(CS_PIN, HIGH);
+
+  return s;
+}
+
+uint8_t tmc_read(uint8_t cmd, uint32_t *data)
+{
+  uint8_t s;
+
+  tmc_write(cmd, 0UL); //set read address
+
+  digitalWrite(CS_PIN, LOW);
+
+  s = SPI.transfer(cmd);
+  *data  = SPI.transfer(0x00) & 0xFF;
+  *data <<= 8;
+  *data |= SPI.transfer(0x00) & 0xFF;
+  *data <<= 8;
+  *data |= SPI.transfer(0x00) & 0xFF;
+  *data <<= 8;
+  *data |= SPI.transfer(0x00) & 0xFF;
+
+  digitalWrite(CS_PIN, HIGH);
+
+  return s;
+}
 
 void setup() {
+  pinMode(EN_PIN, OUTPUT);
+  digitalWrite(EN_PIN, HIGH); //deactivate driver (LOW active)
+  pinMode(DIR_PIN, OUTPUT);
+  digitalWrite(DIR_PIN, LOW); //LOW or HIGH
+  pinMode(STEP_PIN, OUTPUT);
+  digitalWrite(STEP_PIN, LOW);
+
+  pinMode(CS_PIN, OUTPUT);
+  digitalWrite(CS_PIN, HIGH);
+  pinMode(MOSI_PIN, OUTPUT);
+  digitalWrite(MOSI_PIN, LOW);
+  pinMode(MISO_PIN, INPUT);
+  digitalWrite(MISO_PIN, HIGH);
+  pinMode(SCK_PIN, OUTPUT);
+  digitalWrite(SCK_PIN, LOW);
   // currentPosition = analogRead(sensorPin);
   Serial.begin(9600);
   Serial.println("starting");
-  actuator.setSpeed(120);
+  //actuator.setSpeed(120);
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
+  tmc_write(WRITE_FLAG | 0x14,      0xFFFFFUL); //TCOOLTHRS
+  tmc_write(WRITE_FLAG | 0x14,      0x0); //THIGH
+  tmc_write(WRITE_FLAG | REG_COOLCONF,    0x0006205UL);
+  tmc_write(WRITE_FLAG | REG_GCONF,      0x00000201UL); //voltage on AIN is current reference
+  tmc_write(WRITE_FLAG | REG_IHOLD_IRUN, 0x00001010UL); //IHOLD=0x10, IRUN=0x10
+  tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x01008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
+  digitalWrite(EN_PIN, LOW);
+
   tft.reset();
 
   uint16_t identifier = tft.readID();
@@ -155,8 +239,9 @@ void setup() {
   tft.setRotation(2);
   tft.fillScreen(BLACK);
   int notFirstRow = 0;
+  Serial.println("screen");
   // create buttons
-  for (uint8_t number = 0; number < 9; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
+  for (uint8_t number = 0; number < 10; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
     int row = 0;
     int col = number;
     int buttonWidth = BUTTON_W;
@@ -174,8 +259,12 @@ void setup() {
       col -= 2;
     }
     if (number > 6) {
+      row = 3;
+      col -= 2;
+    } if (number == 9) {
       row = 4;
       col -= 2;
+      buttonWidth = buttonWidth * 2;
     }
     buttons[number].initButton(&tft, BUTTON_X + col * (buttonWidth + BUTTON_SPACING_X) + (buttonWidth - BUTTON_W) - BUTTON_SPACING_X / 2 * notFirstRow,
                                BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
@@ -183,28 +272,100 @@ void setup() {
                                buttonlabels[number], BUTTON_TEXTSIZE);
     buttons[number].drawButton();
   }
+  Serial.println("buttons");
 
   // create 'text field'
   tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
+  Serial.println("setup done");
+  bool homing = true;
+  uint32_t last_time = 0;
+  uint32_t ms = millis();
+  uint32_t data;
+  uint8_t s;
+  while (homing) {
+    ms = millis();
+
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(5);  //10
+    if ((ms - last_time) > 100) //run every 1s
+    {
+      last_time = ms;
+      /*if (digitalRead(40) == LOW) {
+        Serial.println("diag01");
+        homed = 1;
+        //TMC2130 outputs on (LOW active)
+        digitalWrite(EN_PIN, HIGH);
+      }*/
+      //show REG_GSTAT
+      s = tmc_read(REG_GSTAT, &data);
+      /*Serial.print("GSTAT:     0x0");
+      Serial.print(data, HEX);
+      Serial.print("\t - ");
+      Serial.print("Status: 0x");
+      Serial.print(s, HEX);*/
+          //make steps
+
+      if (s & 0x01) Serial.print(" reset");
+      if (s & 0x02) Serial.print(" error");
+      if (s & 0x04) {
+        Serial.print(" sg2");
+      }
+      if (s & 0x08) Serial.print(" standstill");
+      Serial.println(" ");
+
+      //show REG_DRVSTATUS
+      s = tmc_read(REG_DRVSTATUS, &data);
+      /*Serial.print("DRVSTATUS: 0x");
+      Serial.print(data, HEX);
+      Serial.print("\t - ");
+      Serial.print("Status: 0x");
+      Serial.print(s, HEX);*/
+      if (s & 0x01) Serial.print(" reset");
+      if (s & 0x02) Serial.print(" error");
+      if (s & 0x04) {
+        Serial.print(" sg2");
+        //TMC2130 outputs on (LOW active)
+        digitalWrite(EN_PIN, HIGH);
+        digitalWrite(DIR_PIN, HIGH);
+        delay(3000);
+        homing = false;
+        //digitalWrite(EN_PIN, LOW);
+
+      }
+      if (s & 0x08) Serial.print(" standstill");
+      //Serial.println(" ");
+
+    }
+
+
+  }
+  Serial.println("Home");
+  currentPosition = -moveSize*5;
+  tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
 }
 
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
 void timedMove(long moveTime) {
   retract = true;
-  homePosition = currentPosition;
   /*if (moveTime < 30) {
     moveTime = 30;
     }*/
   timePerMove = 800; // in milliseconds
-  moveTime -= 5;
-  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2) / 2;
+  moveTime -= 3;
+  if (moveTime < 30){
+    moveTime += 1;
+  }
+  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2);
   if (maxTimePerMove <= 350) {
-    maxTimePerMove = 350;
+    maxTimePerMove = 350; // this might be able to go a little faster, but this seems a good max, it should be abpout 30 sec for a full move
   }
   moving = true;
+  digitalWrite(EN_PIN, LOW);
   moveDirection = 1;
   destinationPosition = maxPosition;
-  if (currentPosition >= (maxPosition - 5000)) {
+  if (currentPosition >= (maxPosition - 5)) {
     moveDirection = -1;
     destinationPosition = 0;
   }
@@ -221,16 +382,21 @@ void timerDone() {
   //digitalWrite(13, HIGH);
   Serial.print("Timer Done");
   moving = false;
+          digitalWrite(EN_PIN, HIGH);
+
 }
 
 void goHome() {
   moving = true;
+  digitalWrite(EN_PIN, LOW);
   timePerMove = 800; // in milliseconds
-  maxTimePerMove = 800; //in milliseconds
+  maxTimePerMove = 500; //in milliseconds
   if (currentPosition == homePosition) {
     moving = false;
+            digitalWrite(EN_PIN, HIGH);
+
   } else {
-    destinationPosition = homePosition; //toInt apparently returns a long according to forums
+    destinationPosition = homePosition;
     if (destinationPosition < currentPosition) {
       //retracting = true;
       moveDirection = -1;
@@ -244,12 +410,14 @@ void moveCart(int rotations, int moveDirectionTransfer) {
   moveDirection = moveDirectionTransfer;
   destinationPosition = currentPosition + rotations * moveSize * moveDirection; // the 100 has to be redefined along with making the 386 step chunk dynamic
   moving = true;
+  digitalWrite(EN_PIN, LOW);
 }
 
 #define MINPRESSURE 10
 #define MAXPRESSURE 1000
 
 void loop() {
+  manual = false;
   timer.run();
   digitalWrite(13, HIGH);
   TSPoint p = ts.getPoint();
@@ -265,7 +433,7 @@ void loop() {
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
   }
-  for (uint8_t b = 0; b < 9; b++) {
+  for (uint8_t b = 0; b < 10; b++) {
     if (buttons[b].contains(p.x, p.y)) {
       //Serial.print("Pressing: "); Serial.println(b);
       buttons[b].press(true); // tell the button it is pressed
@@ -273,7 +441,7 @@ void loop() {
       buttons[b].press(false); // tell the button it is NOT pressed
     }
   }
-  for (uint8_t b = 0; b < 9; b++) {
+  for (uint8_t b = 0; b < 10; b++) {
     if (buttons[b].justReleased()) {
       // Serial.print("Released: "); Serial.println(b);
       buttons[b].drawButton(); // draw normal
@@ -323,39 +491,42 @@ void loop() {
       } else if (b > 6) {
         if (b == 7) {
           moveCart(1, 1);
+          manual = true;
         } else if (b == 8) {
           moveCart(1, -1);
+          manual = true;
+        } else if (b == 9) {
+          maxPosition = currentPosition;
         }
-        /*  if (homePosition < 0){
-            homePosition = 0;
-          } else if (homePosition > 100) {
-            homePosition = 100;
-          }
+        /*if (homePosition < 0){
+          homePosition = 0;
+        }
         long calchome = homePosition;
-          int counterP = sizeof(hometextfield) - 1;
-          hometextfield[counterP] = 0;
-          counterP--;
-          Serial.println(calchome / 10);
-          while (calchome / 10 > 0) {
-            Serial.println(calchome);
-            hometextfield[counterP] = calchome % 10 + '0';
-            calchome = calchome / 10;
-            counterP--;
-          }
+        int counterP = sizeof(hometextfield) - 1;
+        hometextfield[counterP] = 0;
+        counterP--;
+        Serial.println(calchome / 10);
+        while (calchome / 10 > 0) {
+          Serial.println(calchome);
           hometextfield[counterP] = calchome % 10 + '0';
+          calchome = calchome / 10;
           counterP--;
-          while (counterP >= 0) {
-            hometextfield[counterP] = ' ';
-            counterP--;
-          }*/
+        }
+        hometextfield[counterP] = calchome % 10 + '0';
+        counterP--;
+        while (counterP >= 0) {
+          hometextfield[counterP] = ' ';
+          counterP--;
+        }*/
         delay(10);
       }
       // Home button send it home
       if (b == 1) {
         //Holder code
         timePerMove = 800; // in milliseconds
-        maxTimePerMove = 800; //in milliseconds
+        maxTimePerMove = 500; //in milliseconds
         moving = true;
+        digitalWrite(EN_PIN, LOW);
         destinationPosition = 0; //toInt apparently returns a long according to forums
         if (destinationPosition < currentPosition) {
           moveDirection = -1;
@@ -372,15 +543,17 @@ void loop() {
       tft.print(textfield);
 
       // update the current home text field
-      Serial.println(hometextfield);
-      tft.setCursor(TEXT_X + 2, BUTTON_Y + 3 * (BUTTON_H + BUTTON_SPACING_Y) - 10);
+      /*Serial.println(hometextfield);
+      tft.setCursor(TEXT_X + 2, BUTTON_Y + 3 * (BUTTON_H + BUTTON_SPACING_Y)-10);
       tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
       tft.setTextSize(TEXT_TSIZE);
-      tft.print(hometextfield);
+      tft.print(hometextfield);*/
 
       // Stop button
       if (b == 2) {
         moving = false; // note: at speeds like 1100 sec this is only checked ever 10 sec; faster speeds aren't a problem
+                digitalWrite(EN_PIN, HIGH);
+
       } else if (b == 1) {
         goHome();
       }
@@ -393,13 +566,14 @@ void loop() {
   }
   if (Serial.available() > 0) {
     timePerMove = 800; // in milliseconds
-    maxTimePerMove = 800; //in milliseconds
+    maxTimePerMove = 500; //in milliseconds
     maxSpeed = 360;
     rotationSpeed = 160;
     String input = Serial.readString();
     Serial.print("I received: ");
     Serial.println(input);
     moving = true;
+    digitalWrite(EN_PIN, LOW);
     Serial.println(input.charAt(0));
     if (input.charAt(0) == 'p') {
       input = input.substring(1, input.length());
@@ -417,7 +591,8 @@ void loop() {
         //retracting = true;
         moveDirection = -1;
         if (overide == true) {
-          currentPosition = 100000;
+          currentPosition = 100000;//note after the change overide will only move it 1/10th of the way down;
+          //I think this is a fine change
         }
       } else {
         moveDirection = 1;
@@ -428,6 +603,7 @@ void loop() {
     }
     else if (input.charAt(0) == 'z') {
       moving = false;
+      digitalWrite(EN_PIN, HIGH);
       currentPosition = 0;
     } else if (input.charAt(0) == 't') {
       input = input.substring(1, input.length());
@@ -436,9 +612,13 @@ void loop() {
     }
     else if (input.charAt(0) == 's') {
       moving = false;
+              digitalWrite(EN_PIN, HIGH);
+
       Serial.println(currentPosition);
-    } else if (input.charAt(0) == 'h') { // value 1-movementDivision;
+    } else if (input.charAt(0) == 'h') {
       moving = false;
+              digitalWrite(EN_PIN, HIGH);
+
       input = input.substring(1, input.length());
       homePosition = moveSize * input.toInt(); //toInt apparently returns a long according to forums
     } else if (input.charAt(0) == 'r') {
@@ -448,7 +628,7 @@ void loop() {
       Serial.println(moving);
       timeToMove = input.toInt();
       moveDirection = 1;
-      actuator.setSpeed(rotationSpeed);
+      //actuator.setSpeed(rotationSpeed);
       destinationPosition = 193;
       if (timeToMove < 0) {
         //retracting = true;
@@ -469,25 +649,27 @@ void loop() {
   if (moving == true) {
     //Serial.println(currentPosition);
     if (moveDirection == 1) {
-      digitalWrite(47, HIGH);
+      digitalWrite(29, HIGH);
     } else {
-      digitalWrite(47, LOW);
+      digitalWrite(29, LOW);
     }
     for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
       for (int k = 0; k < moveSize / 10; k++) {
-        digitalWrite(49, HIGH); //Trigger one step forward
+        digitalWrite(27, HIGH); //Trigger one step forward
         delayMicroseconds(timePerMove);
-        digitalWrite(49, LOW); //Pull step pin low so it can be triggered again
+        digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
         delayMicroseconds(timePerMove);
       }
       if (buttons[2].justReleased()) {
         moving = false;
+                digitalWrite(EN_PIN, HIGH);
+
       }
     }
     for (int j = 0; j < (moveSize % 10); j++) {
-      digitalWrite(49, HIGH); //Trigger one step forward
+      digitalWrite(27, HIGH); //Trigger one step forward
       delayMicroseconds(timePerMove);
-      digitalWrite(49, LOW); //Pull step pin low so it can be triggered again
+      digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
       delayMicroseconds(timePerMove);
     }
     currentPosition += moveDirection * moveSize;
@@ -504,17 +686,21 @@ void loop() {
     }
     if (moveDirection == -1 && (currentPosition < homePosition + 150 || !(currentPosition > destinationPosition))) {
       moving = false;
+              digitalWrite(EN_PIN, HIGH);
+
     } else if (moveDirection == 1 && (currentPosition > (maxPosition - 150) || !(currentPosition < destinationPosition))) {
       if (retract == true) {
         moveDirection = -1;
         destinationPosition = homePosition;
-        homePosition = 0;
         timePerMove = 800;
-        maxTimePerMove = 800;
-        retract = false;
+        maxTimePerMove = 500;
         delay(100);
+      } else if (manual == true && currentPosition < (trueMax)) {
+        //avoid setting to false while the user is moving past the previously set bottom dip point
       } else {
         moving = false;
+                digitalWrite(EN_PIN, HIGH);
+
       }
     }
   }
