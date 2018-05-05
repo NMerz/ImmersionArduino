@@ -39,24 +39,24 @@
 
 // Color definitions
 #define ILI9341_BLACK 0x0000 /* 0, 0, 0 */
-#define ILI9341_NAVY 0x000F /* 0, 0, 128 */
+//#define ILI9341_NAVY 0x000F /* 0, 0, 128 */
 #define ILI9341_DARKGREEN 0x03E0 /* 0, 128, 0 */
-#define ILI9341_DARKCYAN 0x03EF /* 0, 128, 128 */
-#define ILI9341_MAROON 0x7800 /* 128, 0, 0 */
-#define ILI9341_PURPLE 0x780F /* 128, 0, 128 */
-#define ILI9341_OLIVE 0x7BE0 /* 128, 128, 0 */
+//#define ILI9341_DARKCYAN 0x03EF /* 0, 128, 128 */
+//#define ILI9341_MAROON 0x7800 /* 128, 0, 0 */
+//#define ILI9341_PURPLE 0x780F /* 128, 0, 128 */
+//#define ILI9341_OLIVE 0x7BE0 /* 128, 128, 0 */
 #define ILI9341_LIGHTGREY 0xC618 /* 192, 192, 192 */
 #define ILI9341_DARKGREY 0x7BEF /* 128, 128, 128 */
 #define ILI9341_BLUE 0x001F /* 0, 0, 255 */
 #define ILI9341_GREEN 0x07E0 /* 0, 255, 0 */
-#define ILI9341_CYAN 0x07FF /* 0, 255, 255 */
+//#define ILI9341_CYAN 0x07FF /* 0, 255, 255 */
 #define ILI9341_RED 0xF800 /* 255, 0, 0 */
 #define ILI9341_MAGENTA 0xF81F /* 255, 0, 255 */
-#define ILI9341_YELLOW 0xFFE0 /* 255, 255, 0 */
+//#define ILI9341_YELLOW 0xFFE0 /* 255, 255, 0 */
 #define ILI9341_WHITE 0xFFFF /* 255, 255, 255 */
-#define ILI9341_ORANGE 0xFD20 /* 255, 165, 0 */
-#define ILI9341_GREENYELLOW 0xAFE5 /* 173, 255, 47 */
-#define ILI9341_PINK 0xF81F
+//#define ILI9341_ORANGE 0xFD20 /* 255, 165, 0 */
+//#define ILI9341_GREENYELLOW 0xAFE5 /* 173, 255, 47 */
+//#define ILI9341_PINK 0xF81F
 
 /******************* UI details */
 #define BUTTON_X 40
@@ -77,7 +77,7 @@
 
 #define TEXT_LEN 12
 char textfield[TEXT_LEN + 1] = "";
-char hometextfield[TEXT_LEN + 1] = "home";
+char hometextfield[TEXT_LEN + 1] = "";
 uint8_t textfield_i = 0;
 
 #define YP A3 // must be an analog pin, use "An" notation!
@@ -106,7 +106,7 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 
 Elegoo_GFX_Button buttons[9];
 
-char buttonlabels[9][5] = {"Move", "Home", "Stop", "+", "-", "+10", "-10", "+2", "-2"};
+char buttonlabels[9][5] = {"Move", "Home", "Stop", "+", "-", "+10", "-10", "Up", "Down"};
 uint16_t buttoncolors[9] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
                             ILI9341_BLUE, ILI9341_BLUE,
                             ILI9341_BLUE, ILI9341_BLUE,
@@ -114,6 +114,10 @@ uint16_t buttoncolors[9] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
                            };
 
 //break between GUI and controls
+
+
+//potential to home with SPI on Silent board
+
 
 long timeToMove = 0; //total move time in seconds
 long timePerMove = 800; // in milliseconds
@@ -124,21 +128,18 @@ long currentPosition = 0;
 int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
 //long maxPosition = 193*2 // old half rotation position
-long maxPosition = 38600;
+long maxPosition = 38600 * 2;
 long homePosition = 0;
 int rotationSpeed = 160;
 long destinationPosition = 1800;
 long betweenSteps = 1;
+int movementSubdivisions = 200;
+int moveSize = maxPosition / movementSubdivisions;
 bool moving = false;
 int maxSpeed = 360; //this seems to be safe but I've accidentally taken it up to 460 and it worked fine with the acceleration
 Stepper actuator(3200, 49, 47);
 
 void setup() {
-  // put your setup code here, to run once:
-  /*pinMode(53, OUTPUT);
-    pinMode(51, OUTPUT);
-    pinMode(49, OUTPUT);
-    pinMode(47, OUTPUT);*/
   // currentPosition = analogRead(sensorPin);
   Serial.begin(9600);
   Serial.println("starting");
@@ -190,6 +191,7 @@ void setup() {
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
 void timedMove(long moveTime) {
   retract = true;
+  homePosition = currentPosition;
   /*if (moveTime < 30) {
     moveTime = 30;
     }*/
@@ -212,16 +214,6 @@ void timedMove(long moveTime) {
     timePerMove = maxTimePerMove;
   }
 
-  /*
-    /*if (moveTime <40) { //better covered by maxSpeed
-    moveTime = 40;
-    }* /
-    maxSpeed = (abs(destinationPosition-currentPosition)-40)*60/(moveTime-10)*3/2;
-    Serial.print("max speed: ");
-    Serial.println(maxSpeed);
-    if (maxSpeed >360) {
-    //maxSpeed = 360;
-    }*/
   //read time input and set max rpms as well as destination position at end
 }
 
@@ -234,7 +226,7 @@ void timerDone() {
 void goHome() {
   moving = true;
   timePerMove = 800; // in milliseconds
-  maxTimePerMove = 500; //in milliseconds
+  maxTimePerMove = 800; //in milliseconds
   if (currentPosition == homePosition) {
     moving = false;
   } else {
@@ -248,6 +240,11 @@ void goHome() {
   }
 }
 
+void moveCart(int rotations, int moveDirectionTransfer) {
+  moveDirection = moveDirectionTransfer;
+  destinationPosition = currentPosition + rotations * moveSize * moveDirection; // the 100 has to be redefined along with making the 386 step chunk dynamic
+  moving = true;
+}
 
 #define MINPRESSURE 10
 #define MAXPRESSURE 1000
@@ -302,14 +299,9 @@ void loop() {
         if (time < 0) {
           time = 0;
         }
-        /*
-          if (textfield_i < TEXT_LEN) {
-          textfield[textfield_i] = buttonlabels[b][0];
-          textfield_i++;
-          textfield[textfield_i] = 0; // zero terminate
-
-          // fona.playDTMF(buttonlabels[b][0]);
-          }*/
+        if (time > 1200) {
+          time = 1200;
+        }
         long calctime = time;
         int counterT = sizeof(textfield) - 1;
         textfield[counterT] = 0;
@@ -327,38 +319,42 @@ void loop() {
           textfield[counterT] = ' ';
           counterT--;
         }
+        delay(10);
       } else if (b > 6) {
         if (b == 7) {
-          homePosition += 2;
+          moveCart(1, 1);
         } else if (b == 8) {
-          homePosition -= 2;
+          moveCart(1, -1);
         }
-        if (homePosition < 0) {
-          homePosition = 0;
-        }
+        /*  if (homePosition < 0){
+            homePosition = 0;
+          } else if (homePosition > 100) {
+            homePosition = 100;
+          }
         long calchome = homePosition;
-        int counterP = sizeof(hometextfield) - 1;
-        hometextfield[counterP] = 0;
-        counterP--;
-        Serial.println(calchome / 10);
-        while (calchome / 10 > 0) {
-          Serial.println(calchome);
+          int counterP = sizeof(hometextfield) - 1;
+          hometextfield[counterP] = 0;
+          counterP--;
+          Serial.println(calchome / 10);
+          while (calchome / 10 > 0) {
+            Serial.println(calchome);
+            hometextfield[counterP] = calchome % 10 + '0';
+            calchome = calchome / 10;
+            counterP--;
+          }
           hometextfield[counterP] = calchome % 10 + '0';
-          calchome = calchome / 10;
           counterP--;
-        }
-        hometextfield[counterP] = calchome % 10 + '0';
-        counterP--;
-        while (counterP >= 0) {
-          hometextfield[counterP] = ' ';
-          counterP--;
-        }
+          while (counterP >= 0) {
+            hometextfield[counterP] = ' ';
+            counterP--;
+          }*/
+        delay(10);
       }
       // Home button send it home
       if (b == 1) {
         //Holder code
         timePerMove = 800; // in milliseconds
-        maxTimePerMove = 500; //in milliseconds
+        maxTimePerMove = 800; //in milliseconds
         moving = true;
         destinationPosition = 0; //toInt apparently returns a long according to forums
         if (destinationPosition < currentPosition) {
@@ -385,10 +381,10 @@ void loop() {
       // Stop button
       if (b == 2) {
         moving = false; // note: at speeds like 1100 sec this is only checked ever 10 sec; faster speeds aren't a problem
+      } else if (b == 1) {
+        goHome();
       }
-      // we dont really check that the text field makes sense
-      // just try to call
-      if (b == 0) {
+      else if (b == 0) {
         timedMove(time); //broke at 12xx move command while in middle of track when dad was playing with it
       }
 
@@ -397,7 +393,7 @@ void loop() {
   }
   if (Serial.available() > 0) {
     timePerMove = 800; // in milliseconds
-    maxTimePerMove = 500; //in milliseconds
+    maxTimePerMove = 800; //in milliseconds
     maxSpeed = 360;
     rotationSpeed = 160;
     String input = Serial.readString();
@@ -421,8 +417,7 @@ void loop() {
         //retracting = true;
         moveDirection = -1;
         if (overide == true) {
-          currentPosition = 100000;//note after the change overide will only move it 1/10th of the way down;
-          //I think this is a fine change
+          currentPosition = 100000;
         }
       } else {
         moveDirection = 1;
@@ -442,10 +437,10 @@ void loop() {
     else if (input.charAt(0) == 's') {
       moving = false;
       Serial.println(currentPosition);
-    } else if (input.charAt(0) == 'h') { // value 1-100;
+    } else if (input.charAt(0) == 'h') { // value 1-movementDivision;
       moving = false;
       input = input.substring(1, input.length());
-      homePosition = 386 * input.toInt(); //toInt apparently returns a long according to forums
+      homePosition = moveSize * input.toInt(); //toInt apparently returns a long according to forums
     } else if (input.charAt(0) == 'r') {
       goHome();
     }
@@ -472,19 +467,30 @@ void loop() {
     }
   }
   if (moving == true) {
-    Serial.println(currentPosition);
+    //Serial.println(currentPosition);
     if (moveDirection == 1) {
       digitalWrite(47, HIGH);
     } else {
       digitalWrite(47, LOW);
     }
-    for (int i = 0; i < 386; i++) {
+    for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
+      for (int k = 0; k < moveSize / 10; k++) {
+        digitalWrite(49, HIGH); //Trigger one step forward
+        delayMicroseconds(timePerMove);
+        digitalWrite(49, LOW); //Pull step pin low so it can be triggered again
+        delayMicroseconds(timePerMove);
+      }
+      if (buttons[2].justReleased()) {
+        moving = false;
+      }
+    }
+    for (int j = 0; j < (moveSize % 10); j++) {
       digitalWrite(49, HIGH); //Trigger one step forward
       delayMicroseconds(timePerMove);
       digitalWrite(49, LOW); //Pull step pin low so it can be triggered again
       delayMicroseconds(timePerMove);
     }
-    currentPosition += moveDirection * 386;
+    currentPosition += moveDirection * moveSize;
     if (timePerMove > maxTimePerMove) {
       if (timePerMove > 500) {
         timePerMove -= 100;
@@ -502,29 +508,16 @@ void loop() {
       if (retract == true) {
         moveDirection = -1;
         destinationPosition = homePosition;
+        homePosition = 0;
         timePerMove = 800;
+        maxTimePerMove = 800;
+        retract = false;
         delay(100);
       } else {
         moving = false;
       }
     }
   }
-  /*
-    if (rotationSpeed < maxSpeed) {
-    rotationSpeed += 15;
-    actuator.setSpeed(rotationSpeed);
-    Serial.println(rotationSpeed);
-    } else {
-    Serial.print("current speed is ");
-    Serial.println(maxSpeed);
-    actuator.setSpeed(maxSpeed);
-    }
-    if ((moveDirection == -1 && (currentPosition < 3 || !(currentPosition > destinationPosition))) || (moveDirection == 1 && (currentPosition > maxPosition ||!(currentPosition < destinationPosition)))){
-    actuator.setSpeed(rotationSpeed-100);
-    moving = false;
-    }
-    actuator.step(moveDirection*3200);*/
-
   // delay(betweenSteps-1);
   //Serial.println(currentPosition);
 }
