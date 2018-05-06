@@ -127,7 +127,7 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 
 Elegoo_GFX_Button buttons[10];
 
-char buttonlabels[10][7] = {"Move", "Home", "Stop", "+", "-", "+10", "-10", "+2", "-2", "Bottom"};
+char buttonlabels[10][11] = {"Dip", "Top", "Stop", "+", "-", "+10", "-10", "v", "^", "Set End"};
 uint16_t buttoncolors[10] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
                              ILI9341_BLUE, ILI9341_BLUE,
                              ILI9341_BLUE, ILI9341_BLUE,
@@ -150,7 +150,7 @@ long trueMax = 38600;
 long maxPosition = trueMax;
 long homePosition = 0;
 int rotationSpeed = 160;
-long destinationPosition = 1800;
+long destinationPosition = 0;
 long betweenSteps = 1;
 int movementSubdivisions = 200;
 int moveSize = maxPosition / movementSubdivisions;
@@ -273,9 +273,29 @@ void setup() {
     buttons[number].drawButton();
   }
   Serial.println("buttons");
-
+  long calctime = time;
+  int counterT = sizeof(textfield) - 1;
+  textfield[counterT] = 0;
+  counterT--;
+  Serial.println(calctime / 10);
+  while (calctime / 10 > 0) {
+    Serial.println(calctime);
+    textfield[counterT] = calctime % 10 + '0';
+    calctime = calctime / 10;
+    counterT--;
+  }
+  textfield[counterT] = calctime % 10 + '0';
+  counterT--;
+  while (counterT >= 0) {
+    textfield[counterT] = ' ';
+    counterT--;
+  }
   // create 'text field'
   tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
+  tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
+  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+  tft.setTextSize(TEXT_TSIZE);
+  tft.print(textfield);
   Serial.println("setup done");
   bool homing = true;
   uint32_t last_time = 0;
@@ -305,7 +325,7 @@ void setup() {
       Serial.print("\t - ");
       Serial.print("Status: 0x");
       Serial.print(s, HEX);*/
-          //make steps
+      //make steps
 
       if (s & 0x01) Serial.print(" reset");
       if (s & 0x02) Serial.print(" error");
@@ -342,8 +362,9 @@ void setup() {
 
   }
   Serial.println("Home");
-  currentPosition = -moveSize*5;
+  currentPosition = -moveSize * 3;
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
+  goHome();
 }
 
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
@@ -354,7 +375,7 @@ void timedMove(long moveTime) {
     }*/
   timePerMove = 800; // in milliseconds
   moveTime -= 3;
-  if (moveTime < 30){
+  if (moveTime < 30) {
     moveTime += 1;
   }
   maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2);
@@ -365,6 +386,7 @@ void timedMove(long moveTime) {
   digitalWrite(EN_PIN, LOW);
   moveDirection = 1;
   destinationPosition = maxPosition;
+  //homePosition = currentPosition;
   if (currentPosition >= (maxPosition - 5)) {
     moveDirection = -1;
     destinationPosition = 0;
@@ -374,6 +396,7 @@ void timedMove(long moveTime) {
   if (timePerMove < maxTimePerMove) {
     timePerMove = maxTimePerMove;
   }
+  Serial.println(timePerMove);
 
   //read time input and set max rpms as well as destination position at end
 }
@@ -382,7 +405,7 @@ void timerDone() {
   //digitalWrite(13, HIGH);
   Serial.print("Timer Done");
   moving = false;
-          digitalWrite(EN_PIN, HIGH);
+  digitalWrite(EN_PIN, HIGH);
 
 }
 
@@ -393,7 +416,7 @@ void goHome() {
   maxTimePerMove = 500; //in milliseconds
   if (currentPosition == homePosition) {
     moving = false;
-            digitalWrite(EN_PIN, HIGH);
+    digitalWrite(EN_PIN, HIGH);
 
   } else {
     destinationPosition = homePosition;
@@ -408,9 +431,18 @@ void goHome() {
 
 void moveCart(int rotations, int moveDirectionTransfer) {
   moveDirection = moveDirectionTransfer;
-  destinationPosition = currentPosition + rotations * moveSize * moveDirection; // the 100 has to be redefined along with making the 386 step chunk dynamic
+  destinationPosition = currentPosition + (rotations * moveSize * moveDirection + 1 * moveDirection);
   moving = true;
   digitalWrite(EN_PIN, LOW);
+  if (destinationPosition > trueMax) {
+    //destinationPosition -= rotations * moveSize;
+    moving = false; //probably should be in an else
+    digitalWrite(EN_PIN, HIGH);
+  } else if (destinationPosition < 0) {
+    //destinationPosition = 0;
+    moving = false;
+    digitalWrite(EN_PIN, HIGH);
+  }
 }
 
 #define MINPRESSURE 10
@@ -492,9 +524,15 @@ void loop() {
         if (b == 7) {
           moveCart(1, 1);
           manual = true;
+          timePerMove = 800; // in milliseconds
+          maxTimePerMove = 500; //in milliseconds
+          retract = false;
         } else if (b == 8) {
           moveCart(1, -1);
           manual = true;
+          timePerMove = 800; // in milliseconds
+          maxTimePerMove = 500; //in milliseconds
+          retract = false;
         } else if (b == 9) {
           maxPosition = currentPosition;
         }
@@ -552,13 +590,13 @@ void loop() {
       // Stop button
       if (b == 2) {
         moving = false; // note: at speeds like 1100 sec this is only checked ever 10 sec; faster speeds aren't a problem
-                digitalWrite(EN_PIN, HIGH);
+        digitalWrite(EN_PIN, HIGH);
 
       } else if (b == 1) {
         goHome();
       }
       else if (b == 0) {
-        timedMove(time); //broke at 12xx move command while in middle of track when dad was playing with it
+        timedMove(time); //breaks 400-500 sec May 5th
       }
 
       //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
@@ -612,12 +650,12 @@ void loop() {
     }
     else if (input.charAt(0) == 's') {
       moving = false;
-              digitalWrite(EN_PIN, HIGH);
+      digitalWrite(EN_PIN, HIGH);
 
       Serial.println(currentPosition);
     } else if (input.charAt(0) == 'h') {
       moving = false;
-              digitalWrite(EN_PIN, HIGH);
+      digitalWrite(EN_PIN, HIGH);
 
       input = input.substring(1, input.length());
       homePosition = moveSize * input.toInt(); //toInt apparently returns a long according to forums
@@ -653,24 +691,46 @@ void loop() {
     } else {
       digitalWrite(29, LOW);
     }
-    for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
-      for (int k = 0; k < moveSize / 10; k++) {
+    if (timePerMove < 5000) {
+      for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
+        for (int k = 0; k < moveSize / 10; k++) {
+          digitalWrite(27, HIGH); //Trigger one step forward
+          delayMicroseconds(timePerMove);
+          digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
+          delayMicroseconds(timePerMove);
+        }
+        if (buttons[2].justReleased()) {
+          moving = false;
+          digitalWrite(EN_PIN, HIGH);
+
+        }
+      }
+      for (int j = 0; j < (moveSize % 10); j++) {
         digitalWrite(27, HIGH); //Trigger one step forward
         delayMicroseconds(timePerMove);
         digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
         delayMicroseconds(timePerMove);
       }
-      if (buttons[2].justReleased()) {
-        moving = false;
-                digitalWrite(EN_PIN, HIGH);
+    } else {
+      for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
+        for (int k = 0; k < moveSize / 10; k++) {
+          digitalWrite(27, HIGH); //Trigger one step forward
+          delay(timePerMove / 1000);
+          digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
+          delay(timePerMove / 1000);
+        }
+        if (buttons[2].justReleased()) {
+          moving = false;
+          digitalWrite(EN_PIN, HIGH);
 
+        }
       }
-    }
-    for (int j = 0; j < (moveSize % 10); j++) {
-      digitalWrite(27, HIGH); //Trigger one step forward
-      delayMicroseconds(timePerMove);
-      digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
-      delayMicroseconds(timePerMove);
+      for (int j = 0; j < (moveSize % 10); j++) {
+        digitalWrite(27, HIGH); //Trigger one step forward
+        delay(timePerMove / 1000);
+        digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
+        delay(timePerMove / 1000);
+      }
     }
     currentPosition += moveDirection * moveSize;
     if (timePerMove > maxTimePerMove) {
@@ -684,11 +744,11 @@ void loop() {
     } else {
       timePerMove = maxTimePerMove;
     }
-    if (moveDirection == -1 && (currentPosition < homePosition + 150 || !(currentPosition > destinationPosition))) {
+    if (moveDirection == -1 && (currentPosition < homePosition + 1 || !(currentPosition > destinationPosition))) {
       moving = false;
-              digitalWrite(EN_PIN, HIGH);
-
-    } else if (moveDirection == 1 && (currentPosition > (maxPosition - 150) || !(currentPosition < destinationPosition))) {
+      digitalWrite(EN_PIN, HIGH);
+      retract = false;
+    } else if (moveDirection == 1 && (currentPosition > (maxPosition - 1) || !(currentPosition < destinationPosition))) {
       if (retract == true) {
         moveDirection = -1;
         destinationPosition = homePosition;
@@ -699,7 +759,7 @@ void loop() {
         //avoid setting to false while the user is moving past the previously set bottom dip point
       } else {
         moving = false;
-                digitalWrite(EN_PIN, HIGH);
+        digitalWrite(EN_PIN, HIGH);
 
       }
     }
