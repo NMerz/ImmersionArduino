@@ -4,6 +4,8 @@
 #include <Elegoo_TFTLCD.h> // Hardware-specific library
 #include <TouchScreen.h>
 #include "SPI.h"
+#include <EEPROM.h>
+
 
 // The control pins for the LCD can be assigned to any digital or
 // analog pins...but we'll use the analog pins as this allows us to
@@ -176,6 +178,14 @@ uint8_t tmc_write(uint8_t cmd, uint32_t data)
   return s;
 }
 
+void eepromWriteLong(int startByte, long value)
+{
+  EEPROM.write(startByte, (value >> 24UL) & 0xFF);
+  EEPROM.write(startByte + 1, (value >> 16UL) & 0xFF);
+  EEPROM.write(startByte + 2, (value >> 8UL) & 0xFF);
+  EEPROM.write(startByte + 3, (value >> 0UL) & 0xFF);
+}
+
 uint8_t tmc_read(uint8_t cmd, uint32_t *data)
 {
   uint8_t s;
@@ -198,7 +208,19 @@ uint8_t tmc_read(uint8_t cmd, uint32_t *data)
   return s;
 }
 
+long eepromReadLong(int startByte)
+{
+  long returnValue = 0;
+  returnValue += EEPROM.read(startByte) << 24UL;
+  returnValue += EEPROM.read(startByte + 1) << 16UL;
+  returnValue += EEPROM.read(startByte + 2) << 8UL;
+  returnValue += EEPROM.read(startByte + 3) << 0UL;
+  return returnValue;
+}
+
 void setup() {
+  maxPosition =  eepromReadLong(0);
+
   pinMode(EN_PIN, OUTPUT);
   digitalWrite(EN_PIN, HIGH); //deactivate driver (LOW active)
   pinMode(DIR_PIN, OUTPUT);
@@ -265,6 +287,7 @@ void setup() {
       row = 4;
       col -= 2;
       buttonWidth = buttonWidth * 2;
+      notFirstRow = 5;
     }
     buttons[number].initButton(&tft, BUTTON_X + col * (buttonWidth + BUTTON_SPACING_X) + (buttonWidth - BUTTON_W) - BUTTON_SPACING_X / 2 * notFirstRow,
                                BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
@@ -535,6 +558,10 @@ void loop() {
           retract = false;
         } else if (b == 9) {
           maxPosition = currentPosition;
+          if (maxPosition < moveSize) {
+            maxPosition = moveSize;
+          }
+          eepromWriteLong(0, maxPosition);
         }
         /*if (homePosition < 0){
           homePosition = 0;
