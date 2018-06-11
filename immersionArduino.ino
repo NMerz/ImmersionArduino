@@ -219,12 +219,12 @@ long eepromReadLong(int startByte)
 }
 
 void stop_ISR() {
-  if (buttons[2].isPressed()) || buttons[2].justPressed() {
+  //if (buttons[2].isPressed() || buttons[2].justPressed()) {
     moving = false;
     digitalWrite(EN_PIN, HIGH);
     timePerMove = 1000;
     tft.fillScreen(YELLOW);
-  }
+  //}
 
 }
 
@@ -341,7 +341,7 @@ void setup() {
   }
   Serial.println("Home");
   currentPosition = -moveSize * 3;
-  attachInterrupt(7, stop_ISR, CHANGE)
+  attachInterrupt(7, stop_ISR, CHANGE);
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   goHome();
     tft.fillScreen(BLACK);
@@ -391,12 +391,18 @@ void setup() {
   textfield[counterT] = calctime % 6 + '0';
   calctime = calctime / 6;
   counterT--;
+  textfield[counterT] = 's';
+  counterT--;
+  textfield[counterT] = ' ';
+  counterT--;
   while (calctime > 0) {
     Serial.println(calctime);
     textfield[counterT] = calctime % 10 + '0';
     calctime = calctime / 10;
     counterT--;
   }
+  textfield[counterT] = 'm';
+  counterT--;
   while (counterT >= 0) {
     textfield[counterT] = ' ';
     counterT--;
