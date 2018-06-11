@@ -119,7 +119,7 @@ uint8_t textfield_i = 0;
 #define REG_DCCTRL     0x6E
 #define REG_DRVSTATUS  0x6F
 
-long time = 40;
+long time = 80;
 
 Elegoo_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
@@ -218,6 +218,16 @@ long eepromReadLong(int startByte)
   return returnValue;
 }
 
+void stop_ISR() {
+  if (buttons[2].isPressed()) || buttons[2].justPressed() {
+    moving = false;
+    digitalWrite(EN_PIN, HIGH);
+    timePerMove = 1000;
+    tft.fillScreen(YELLOW);
+  }
+
+}
+
 void setup() {
   maxPosition =  eepromReadLong(0);
 
@@ -259,66 +269,11 @@ void setup() {
   }
   tft.begin(identifier);
   tft.setRotation(2);
-  tft.fillScreen(BLACK);
-  int notFirstRow = 0;
-  Serial.println("screen");
-  // create buttons
-  for (uint8_t number = 0; number < 10; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
-    int row = 0;
-    int col = number;
-    int buttonWidth = BUTTON_W;
-    if (number <= 2) {
-      row = 0;
-    }
-    else if (number > 2) {
-      buttonWidth = buttonWidth * 1.5;
-      row = 1;
-      col -= 3;
-      notFirstRow = 1;
-    }
-    if (number > 4) {
-      row = 2;
-      col -= 2;
-    }
-    if (number > 6) {
-      row = 3;
-      col -= 2;
-    } if (number == 9) {
-      row = 4;
-      col -= 2;
-      buttonWidth = buttonWidth * 2;
-      notFirstRow = 5;
-    }
-    buttons[number].initButton(&tft, BUTTON_X + col * (buttonWidth + BUTTON_SPACING_X) + (buttonWidth - BUTTON_W) - BUTTON_SPACING_X / 2 * notFirstRow,
-                               BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
-                               buttonWidth, BUTTON_H, ILI9341_WHITE, buttoncolors[number], ILI9341_WHITE,
-                               buttonlabels[number], BUTTON_TEXTSIZE);
-    buttons[number].drawButton();
-  }
-  Serial.println("buttons");
-  long calctime = time;
-  int counterT = sizeof(textfield) - 1;
-  textfield[counterT] = 0;
-  counterT--;
-  Serial.println(calctime / 10);
-  while (calctime / 10 > 0) {
-    Serial.println(calctime);
-    textfield[counterT] = calctime % 10 + '0';
-    calctime = calctime / 10;
-    counterT--;
-  }
-  textfield[counterT] = calctime % 10 + '0';
-  counterT--;
-  while (counterT >= 0) {
-    textfield[counterT] = ' ';
-    counterT--;
-  }
-  // create 'text field'
   tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
   tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
   tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-  tft.setTextSize(TEXT_TSIZE);
-  tft.print(textfield);
+  tft.setTextSize(TEXT_TSIZE-1);
+  tft.print("Calibrating");
   Serial.println("setup done");
   bool homing = true;
   uint32_t last_time = 0;
@@ -386,8 +341,72 @@ void setup() {
   }
   Serial.println("Home");
   currentPosition = -moveSize * 3;
+  attachInterrupt(7, stop_ISR, CHANGE)
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   goHome();
+    tft.fillScreen(BLACK);
+  int notFirstRow = 0;
+  Serial.println("screen");
+  // create buttons
+  for (uint8_t number = 0; number < 10; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
+    int row = 0;
+    int col = number;
+    int buttonWidth = BUTTON_W;
+    if (number <= 2) {
+      row = 0;
+    }
+    else if (number > 2) {
+      buttonWidth = buttonWidth * 1.5;
+      row = 1;
+      col -= 3;
+      notFirstRow = 1;
+    }
+    if (number > 4) {
+      row = 2;
+      col -= 2;
+    }
+    if (number > 6) {
+      row = 3;
+      col -= 2;
+    } if (number == 9) {
+      row = 4;
+      col -= 2;
+      buttonWidth = buttonWidth * 2;
+      notFirstRow = 5;
+    }
+    buttons[number].initButton(&tft, BUTTON_X + col * (buttonWidth + BUTTON_SPACING_X) + (buttonWidth - BUTTON_W) - BUTTON_SPACING_X / 2 * notFirstRow,
+                               BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
+                               buttonWidth, BUTTON_H, ILI9341_WHITE, buttoncolors[number], ILI9341_WHITE,
+                               buttonlabels[number], BUTTON_TEXTSIZE);
+    buttons[number].drawButton();
+  }
+  Serial.println("buttons");
+  long calctime = time;
+  int counterT = sizeof(textfield) - 1;
+  textfield[counterT] = 0;
+  counterT--;
+  textfield[counterT] = calctime % 10 + '0';
+  calctime = calctime / 10;
+  counterT--;
+  textfield[counterT] = calctime % 6 + '0';
+  calctime = calctime / 6;
+  counterT--;
+  while (calctime > 0) {
+    Serial.println(calctime);
+    textfield[counterT] = calctime % 10 + '0';
+    calctime = calctime / 10;
+    counterT--;
+  }
+  while (counterT >= 0) {
+    textfield[counterT] = ' ';
+    counterT--;
+  }
+  // create 'text field'
+  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
+  tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
+  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+  tft.setTextSize(TEXT_TSIZE);
+  tft.print(textfield);
 }
 
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
