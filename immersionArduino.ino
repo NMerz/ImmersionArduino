@@ -228,7 +228,8 @@ long eepromReadLong(int startByte)
 
 }*/
 
-void start_move(boolean forward, long interval) { //was getting here (may through go home) with incorrect authorization and move instructions
+void start_move(boolean forward, long interval) {
+  timePerMove = interval;
   if (forward) {
     moveDirection = 1;
     digitalWrite(29, HIGH);
@@ -251,6 +252,8 @@ void stop_move() {
   Timer3.detachInterrupt();
   moving = false;
   digitalWrite(EN_PIN, HIGH);
+  manual = false;
+  retract = false;
 }
 
 void setup() {
@@ -450,18 +453,20 @@ void timedMove(long moveTime) {
   /*if (moveTime < 30) {
     moveTime = 30;
     }*/
-  timePerMove = 1200; // in microseconds
-  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition));
-  if (maxTimePerMove <= 600) {
-    maxTimePerMove = 600; // this might be able to go a little faster, but this seems a good max, it should be abpout 30 sec for a full move
-  }
   bool movingforward = true;
   destinationPosition = maxPosition;
-  //homePosition = currentPosition;
-  if (currentPosition >= (maxPosition - 5)) {
-    bool movingforward = false;
+  timePerMove = 1200; // in microseconds
+  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition));
+  if (maxTimePerMove < 0) {
+    movingforward = false;//doesn't seem to work right
     destinationPosition = 0;
+    maxTimePerMove = 1000;
   }
+  if (maxTimePerMove <= 600) {
+    maxTimePerMove = 600; // this might be able to go a little faster, but this seems a good max, it should be about 20 sec for a full move
+  }
+
+  //homePosition = currentPosition;
   if (timePerMove < maxTimePerMove) {
     timePerMove = maxTimePerMove;
   }
@@ -480,7 +485,7 @@ void timerDone() {
 
 void goHome() {
   timePerMove = 1200; // in microseconds
-  maxTimePerMove = 800; //in microseconds
+  maxTimePerMove = 1000; //in microseconds
   if (currentPosition == homePosition) {
   } else {
     bool movingforward = true;
@@ -512,7 +517,7 @@ void moveCart(int rotations, int moveDirectionTransfer) {
 #define MAXPRESSURE 1000
 
 void loop() {
-  manual = false;
+  //manual = false;
   timer.run();
   digitalWrite(13, HIGH);
   TSPoint p = ts.getPoint();
@@ -659,7 +664,7 @@ void loop() {
 
     //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
   }
-  if (moving == false) {
+  if (moving == false || manual == true) {
     if (buttons[7].isPressed() == true) {
       moveCart(1, 1);
     } else if (buttons[8].isPressed() == true) {
@@ -800,11 +805,11 @@ void loop() {
     if (timePerMove != maxTimePerMove) {
       delay(30);
       if (timePerMove > maxTimePerMove) {
-        if (timePerMove > 500) {
+        if (timePerMove > 1200) {
           timePerMove -= 100;
-        } else if (timePerMove > 400) {
+        } else if (timePerMove > 1000) {
           timePerMove -= 40;
-        } else if (timePerMove > 300) {
+        } else if (timePerMove > 800) {
           timePerMove -= 20;
         }
       } else {
@@ -814,16 +819,15 @@ void loop() {
     }
     if (moveDirection == -1 && (currentPosition < homePosition + 1 || !(currentPosition > destinationPosition))) {
       stop_move();
-      retract = false;
     } else if (moveDirection == 1 && (currentPosition > (trueMax - 1) || !(currentPosition < destinationPosition))) {//used to have maxPosition instead of trueMax
       if (retract == true) {
         destinationPosition = homePosition;
         timePerMove = 1200;
-        maxTimePerMove = 600;
+        maxTimePerMove = 1000;
         stop_move();
         delay(100);
-        //start_move(false, 1200);
-      } else if (manual == true && currentPosition < (trueMax)) {
+        start_move(false, 1200);
+      } else if (manual == true && currentPosition < (trueMax) && currentPosition < destinationPosition) {
         //avoid setting to false while the user is moving past the previously set bottom dip point
       } else {
         stop_move();
