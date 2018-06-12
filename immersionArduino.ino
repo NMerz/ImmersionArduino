@@ -5,6 +5,7 @@
 #include <TouchScreen.h>
 #include "SPI.h"
 #include <EEPROM.h>
+#include <TimerThree.h>
 
 
 // The control pins for the LCD can be assigned to any digital or
@@ -140,11 +141,11 @@ uint16_t buttoncolors[10] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
 //break between GUI and controls
 
 long timeToMove = 0; //total move time in seconds
-long timePerMove = 800; // in milliseconds
-long maxTimePerMove = 500; //in milliseconds
+long timePerMove = 1200; // in microseconds
+long maxTimePerMove = 600; //in mircroseconds
 bool retract = false;
 SimpleTimer timer;
-long currentPosition = 0;
+volatile long currentPosition = 0;
 int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
 //long maxPosition = 193*2 // old half rotation position
@@ -218,14 +219,38 @@ long eepromReadLong(int startByte)
   return returnValue;
 }
 
-void stop_ISR() {
+/*void stop_ISR() {
   //if (buttons[2].isPressed() || buttons[2].justPressed()) {
-    moving = false;
-    digitalWrite(EN_PIN, HIGH);
-    timePerMove = 1000;
-    tft.fillScreen(YELLOW);
+  stop_move();
+  timePerMove = 1200;
+  tft.fillScreen(YELLOW);
   //}
 
+}*/
+
+void start_move(boolean forward, long interval) { //was getting here (may through go home) with incorrect authorization and move instructions
+  if (forward) {
+    moveDirection = 1;
+    digitalWrite(29, HIGH);
+  } else {
+    moveDirection = -1;
+    digitalWrite(29, LOW);
+  }
+  moving = true;
+  digitalWrite(EN_PIN, LOW);
+  Timer3.attachInterrupt(step_motor, interval);
+}
+
+void step_motor() {
+  digitalWrite(27, HIGH); //Trigger one step forward
+  digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
+  currentPosition += moveDirection;
+}
+
+void stop_move() {
+  Timer3.detachInterrupt();
+  moving = false;
+  digitalWrite(EN_PIN, HIGH);
 }
 
 void setup() {
@@ -259,6 +284,7 @@ void setup() {
   tmc_write(WRITE_FLAG | REG_IHOLD_IRUN, 0x00001010UL); //IHOLD=0x10, IRUN=0x10
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x01008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   digitalWrite(EN_PIN, LOW);
+  Timer3.initialize();
 
   tft.reset();
 
@@ -272,7 +298,7 @@ void setup() {
   tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
   tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
   tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-  tft.setTextSize(TEXT_TSIZE-1);
+  tft.setTextSize(TEXT_TSIZE - 1);
   tft.print("Calibrating");
   Serial.println("setup done");
   bool homing = true;
@@ -341,10 +367,9 @@ void setup() {
   }
   Serial.println("Home");
   currentPosition = -moveSize * 3;
-  attachInterrupt(7, stop_ISR, CHANGE);
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   goHome();
-    tft.fillScreen(BLACK);
+  tft.fillScreen(BLACK);
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
@@ -395,6 +420,10 @@ void setup() {
   counterT--;
   textfield[counterT] = ' ';
   counterT--;
+  if (calctime == 0) {
+    textfield[counterT] = '0';
+    counterT--;
+  }
   while (calctime > 0) {
     Serial.println(calctime);
     textfield[counterT] = calctime % 10 + '0';
@@ -421,30 +450,23 @@ void timedMove(long moveTime) {
   /*if (moveTime < 30) {
     moveTime = 30;
     }*/
-  timePerMove = 800; // in milliseconds
-  moveTime -= 3;
-  if (moveTime < 30) {
-    moveTime += 1;
+  timePerMove = 1200; // in microseconds
+  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition));
+  if (maxTimePerMove <= 600) {
+    maxTimePerMove = 600; // this might be able to go a little faster, but this seems a good max, it should be abpout 30 sec for a full move
   }
-  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition) / 2);
-  if (maxTimePerMove <= 350) {
-    maxTimePerMove = 350; // this might be able to go a little faster, but this seems a good max, it should be abpout 30 sec for a full move
-  }
-  moving = true;
-  digitalWrite(EN_PIN, LOW);
-  moveDirection = 1;
+  bool movingforward = true;
   destinationPosition = maxPosition;
   //homePosition = currentPosition;
   if (currentPosition >= (maxPosition - 5)) {
-    moveDirection = -1;
+    bool movingforward = false;
     destinationPosition = 0;
   }
-
-
   if (timePerMove < maxTimePerMove) {
     timePerMove = maxTimePerMove;
   }
-  Serial.println(timePerMove);
+  start_move(movingforward, timePerMove);
+  //Serial.println(timePerMove);
 
   //read time input and set max rpms as well as destination position at end
 }
@@ -452,44 +474,37 @@ void timedMove(long moveTime) {
 void timerDone() {
   //digitalWrite(13, HIGH);
   Serial.print("Timer Done");
-  moving = false;
-  digitalWrite(EN_PIN, HIGH);
+  stop_move();
 
 }
 
 void goHome() {
-  moving = true;
-  digitalWrite(EN_PIN, LOW);
-  timePerMove = 800; // in milliseconds
-  maxTimePerMove = 500; //in milliseconds
+  timePerMove = 1200; // in microseconds
+  maxTimePerMove = 800; //in microseconds
   if (currentPosition == homePosition) {
-    moving = false;
-    digitalWrite(EN_PIN, HIGH);
-
   } else {
+    bool movingforward = true;
     destinationPosition = homePosition;
     if (destinationPosition < currentPosition) {
       //retracting = true;
-      moveDirection = -1;
-    } else {
-      moveDirection = 1;
+      movingforward = false;
     }
+    start_move(movingforward, timePerMove);
   }
 }
 
 void moveCart(int rotations, int moveDirectionTransfer) {
-  moveDirection = moveDirectionTransfer;
-  destinationPosition = currentPosition + (rotations * moveSize * moveDirection + 1 * moveDirection);
-  moving = true;
-  digitalWrite(EN_PIN, LOW);
-  if (destinationPosition > trueMax) {
-    //destinationPosition -= rotations * moveSize;
-    moving = false; //probably should be in an else
-    digitalWrite(EN_PIN, HIGH);
-  } else if (destinationPosition < 0) {
-    //destinationPosition = 0;
-    moving = false;
-    digitalWrite(EN_PIN, HIGH);
+  destinationPosition = currentPosition + (rotations * moveSize * moveDirectionTransfer + 1 * moveDirectionTransfer);//is the +1 legacy? It was important at one point
+  if (destinationPosition > trueMax || destinationPosition < 0) {
+  } else {
+    if (moving == false) {
+      maxTimePerMove = 1200;
+      if (moveDirectionTransfer == 1) {
+        start_move(true, 1200);
+      } else {
+        start_move(false, 1200);
+      }
+    }
   }
 }
 
@@ -512,6 +527,9 @@ void loop() {
     // scale from 0->1023 to tft.width
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
+    //tft.fillScreen(YELLOW);
+  } else {
+    //tft.fillScreen(BLACK);
   }
   for (uint8_t b = 0; b < 10; b++) {
     if (buttons[b].contains(p.x, p.y)) {
@@ -528,65 +546,81 @@ void loop() {
     }
 
     if (buttons[b].justPressed()) {
-      buttons[b].drawButton(true); // draw invert!
-
-      // if a numberpad button, append the relevant # to the textfield
-      if (b >= 3 && b <= 6) {
-        if (b == 3) {
-          time += 1;
-        }
-        else if (b == 4) {
-          time -= 1;
-        }
-        else if (b == 5) {
-          time += 10;
-        }
-        else if (b == 6) {
-          time -= 10;
-        }
-        if (time < 0) {
-          time = 0;
-        }
-        if (time > 1200) {
-          time = 1200;
-        }
-        long calctime = time;
-        int counterT = sizeof(textfield) - 1;
-        textfield[counterT] = 0;
-        counterT--;
-        Serial.println(calctime / 10);
-        while (calctime / 10 > 0) {
-          Serial.println(calctime);
+      if (b == 2) {
+        stop_move();
+        buttons[b].drawButton(true); // draw invert!
+      } else if (moving == false) {
+        buttons[b].drawButton(true); // draw invert!
+        // if a numberpad button, append the relevant # to the textfield
+        if (b >= 3 && b <= 6) {
+          if (b == 3) {
+            time += 1;
+          }
+          else if (b == 4) {
+            time -= 1;
+          }
+          else if (b == 5) {
+            time += 10;
+          }
+          else if (b == 6) {
+            time -= 10;
+          }
+          if (time < 0) {
+            time = 0;
+          }
+          if (time > 1200) {
+            time = 1200;
+          }
+          long calctime = time;
+          int counterT = sizeof(textfield) - 1;
+          textfield[counterT] = 0;
+          counterT--;
           textfield[counterT] = calctime % 10 + '0';
           calctime = calctime / 10;
           counterT--;
-        }
-        textfield[counterT] = calctime % 10 + '0';
-        counterT--;
-        while (counterT >= 0) {
+          textfield[counterT] = calctime % 6 + '0';
+          calctime = calctime / 6;
+          counterT--;
+          textfield[counterT] = 's';
+          counterT--;
           textfield[counterT] = ' ';
           counterT--;
-        }
-        delay(10);
-      } else if (b > 6) {
-        if (b == 7) {
-          moveCart(1, 1);
-          manual = true;
-          timePerMove = 800; // in milliseconds
-          maxTimePerMove = 500; //in milliseconds
-          retract = false;
-        } else if (b == 8) {
-          moveCart(1, -1);
-          manual = true;
-          timePerMove = 800; // in milliseconds
-          maxTimePerMove = 500; //in milliseconds
-          retract = false;
+          if (calctime == 0) {
+            textfield[counterT] = '0';
+            counterT--;
+          }
+          while (calctime > 0) {
+            Serial.println(calctime);
+            textfield[counterT] = calctime % 10 + '0';
+            calctime = calctime / 10;
+            counterT--;
+          }
+          textfield[counterT] = 'm';
+          counterT--;
+          while (counterT >= 0) {
+            textfield[counterT] = ' ';
+            counterT--;
+          }
+          // update the current time text field
+          Serial.println(textfield);
+          tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
+          tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+          tft.setTextSize(TEXT_TSIZE);
+          tft.print(textfield);
         } else if (b == 9) {
           maxPosition = currentPosition;
           if (maxPosition < moveSize) {
             maxPosition = moveSize;
           }
           eepromWriteLong(0, maxPosition);
+        } else if (b == 1) {
+          goHome();
+        }
+        else if (b == 0) {
+          timedMove(time);
+        } else if (b == 7 || b == 8) {
+          manual = true;
+          retract = false;
         }
         /*if (homePosition < 0){
           homePosition = 0;
@@ -603,60 +637,38 @@ void loop() {
           counterP--;
         }
         hometextfield[counterP] = calchome % 10 + '0';
-        counterP--;
+        cousnterP--;
         while (counterP >= 0) {
           hometextfield[counterP] = ' ';
           counterP--;
         }*/
-        delay(10);
+        delay(100);
       }
-      // Home button send it home
-      if (b == 1) {
-        //Holder code
-        timePerMove = 800; // in milliseconds
-        maxTimePerMove = 500; //in milliseconds
-        moving = true;
-        digitalWrite(EN_PIN, LOW);
-        destinationPosition = 0; //toInt apparently returns a long according to forums
-        if (destinationPosition < currentPosition) {
-          moveDirection = -1;
-        } else {
-          moveDirection = 1;
-        }
-      }
+    }
 
-      // update the current time text field
-      Serial.println(textfield);
-      tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
-      tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-      tft.setTextSize(TEXT_TSIZE);
-      tft.print(textfield);
 
-      // update the current home text field
-      /*Serial.println(hometextfield);
-      tft.setCursor(TEXT_X + 2, BUTTON_Y + 3 * (BUTTON_H + BUTTON_SPACING_Y)-10);
-      tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-      tft.setTextSize(TEXT_TSIZE);
-      tft.print(hometextfield);*/
+    // update the current home text field
+    /*Serial.println(hometextfield);
+    tft.setCursor(TEXT_X + 2, BUTTON_Y + 3 * (BUTTON_H + BUTTON_SPACING_Y)-10);
+    tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+    tft.setTextSize(TEXT_TSIZE);
+    tft.print(hometextfield);*/
 
-      // Stop button
-      if (b == 2) {
-        moving = false; // note: at speeds like 1100 sec this is only checked ever 10 sec; faster speeds aren't a problem
-        digitalWrite(EN_PIN, HIGH);
+    // Stop button
 
-      } else if (b == 1) {
-        goHome();
-      }
-      else if (b == 0) {
-        timedMove(time); //breaks 400-500 sec May 5th
-      }
 
-      //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
+    //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
+  }
+  if (moving == false) {
+    if (buttons[7].isPressed() == true) {
+      moveCart(1, 1);
+    } else if (buttons[8].isPressed() == true) {
+      moveCart(1, -1);
     }
   }
-  if (Serial.available() > 0) {
-    timePerMove = 800; // in milliseconds
-    maxTimePerMove = 500; //in milliseconds
+  /*if (Serial.available() > 0) { //serial is officially depricated since it did not receive updates to conform to new methodic stopping and starting
+    timePerMove = 1200; // in milliseconds
+    maxTimePerMove = 600; //in milliseconds
     maxSpeed = 360;
     rotationSpeed = 160;
     String input = Serial.readString();
@@ -735,15 +747,15 @@ void loop() {
         timeToMove = 0;
       }
     }
-  }
+  }*/
   if (moving == true) {
     //Serial.println(currentPosition);
-    if (moveDirection == 1) {
+    /*if (moveDirection == 1) {
       digitalWrite(29, HIGH);
     } else {
       digitalWrite(29, LOW);
-    }
-    if (timePerMove < 5000) {
+    }*/
+    /*if (timePerMove < 5000) {
       for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
         for (int k = 0; k < moveSize / 10; k++) {
           digitalWrite(27, HIGH); //Trigger one step forward
@@ -784,35 +796,37 @@ void loop() {
         delay(timePerMove / 1000);
       }
     }
-    currentPosition += moveDirection * moveSize;
-    if (timePerMove > maxTimePerMove) {
-      if (timePerMove > 500) {
-        timePerMove -= 100;
-      } else if (timePerMove > 400) {
-        timePerMove -= 40;
-      } else if (timePerMove > 300) {
-        timePerMove -= 20;
+    currentPosition += moveDirection * moveSize;*/
+    if (timePerMove != maxTimePerMove) {
+      delay(30);
+      if (timePerMove > maxTimePerMove) {
+        if (timePerMove > 500) {
+          timePerMove -= 100;
+        } else if (timePerMove > 400) {
+          timePerMove -= 40;
+        } else if (timePerMove > 300) {
+          timePerMove -= 20;
+        }
+      } else {
+        timePerMove = maxTimePerMove;
       }
-    } else {
-      timePerMove = maxTimePerMove;
+      Timer3.setPeriod(timePerMove);//check that this works and doesn't reset timer and break movement; consider an if to check if time per move = max
     }
     if (moveDirection == -1 && (currentPosition < homePosition + 1 || !(currentPosition > destinationPosition))) {
-      moving = false;
-      digitalWrite(EN_PIN, HIGH);
+      stop_move();
       retract = false;
-    } else if (moveDirection == 1 && (currentPosition > (maxPosition - 1) || !(currentPosition < destinationPosition))) {
+    } else if (moveDirection == 1 && (currentPosition > (trueMax - 1) || !(currentPosition < destinationPosition))) {//used to have maxPosition instead of trueMax
       if (retract == true) {
-        moveDirection = -1;
         destinationPosition = homePosition;
-        timePerMove = 800;
-        maxTimePerMove = 500;
+        timePerMove = 1200;
+        maxTimePerMove = 600;
+        stop_move();
         delay(100);
+        //start_move(false, 1200);
       } else if (manual == true && currentPosition < (trueMax)) {
         //avoid setting to false while the user is moving past the previously set bottom dip point
       } else {
-        moving = false;
-        digitalWrite(EN_PIN, HIGH);
-
+        stop_move();
       }
     }
   }
