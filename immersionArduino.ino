@@ -6,6 +6,7 @@
 #include "SPI.h"
 #include <EEPROM.h>
 #include <TimerThree.h>
+#include <Math.h>
 
 
 // The control pins for the LCD can be assigned to any digital or
@@ -61,6 +62,17 @@
 //#define ILI9341_ORANGE 0xFD20 /* 255, 165, 0 */
 //#define ILI9341_GREENYELLOW 0xAFE5 /* 173, 255, 47 */
 //#define ILI9341_PINK 0xF81F
+
+
+const int buzzerPin = 47;
+
+// Array with the notes in the melody (see pitches.h for reference)
+int melody[] = {431};
+
+// Array with the note durations: a quarter note has a duration of 4, half note 2 etc.
+int durations[]  = {1};
+
+int tempo = 60; // tempo for the melody expressed in beats per minute (BPM)
 
 /******************* UI details */
 #define BUTTON_X 40
@@ -121,6 +133,7 @@ uint8_t textfield_i = 0;
 #define REG_DRVSTATUS  0x6F
 
 long time = 80;
+double timeIncrement = 11.3;
 
 Elegoo_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
@@ -128,15 +141,17 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 // a simpler declaration can optionally be used:
 // Elegoo_TFTLCD tft;
 
-Elegoo_GFX_Button buttons[10];
+const int numOfButtons = 10;
 
-char buttonlabels[10][11] = {"Dip", "Top", "Stop", "+", "-", "+10", "-10", "v", "^", "Set End"};
-uint16_t buttoncolors[10] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
-                             ILI9341_BLUE, ILI9341_BLUE,
-                             ILI9341_BLUE, ILI9341_BLUE,
-                             ILI9341_BLUE, ILI9341_BLUE,
-                             ILI9341_DARKGREY
-                            };
+Elegoo_GFX_Button buttons[numOfButtons];
+
+char buttonlabels[numOfButtons][11] = {"Dip", "Top", "Stop", "ERROR", "ERROR", "+", "-", "v", "^", "Set End"};
+uint16_t buttoncolors[numOfButtons] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
+                                       ILI9341_BLUE, ILI9341_BLUE,
+                                       ILI9341_BLUE, ILI9341_BLUE,
+                                       ILI9341_BLUE, ILI9341_BLUE,
+                                       ILI9341_DARKGREY
+                                      };
 
 //break between GUI and controls
 
@@ -159,6 +174,7 @@ int movementSubdivisions = 200;
 int moveSize = maxPosition / movementSubdivisions;
 bool moving = false;
 bool manual = false;
+bool timedMovement = false;
 int maxSpeed = 360; //this seems to be safe but I've accidentally taken it up to 460 and it worked fine with the acceleration
 //Stepper actuator(3200, 49, 47);
 
@@ -254,6 +270,10 @@ void stop_move() {
   digitalWrite(EN_PIN, HIGH);
   manual = false;
   retract = false;
+  if (timedMovement == true) {
+    playTune(melody, durations, tempo);
+  }
+  timedMovement = false;
 }
 
 void setup() {
@@ -319,20 +339,7 @@ void setup() {
     if ((ms - last_time) > 100) //run every 1s
     {
       last_time = ms;
-      /*if (digitalRead(40) == LOW) {
-        Serial.println("diag01");
-        homed = 1;
-        //TMC2130 outputs on (LOW active)
-        digitalWrite(EN_PIN, HIGH);
-      }*/
-      //show REG_GSTAT
       s = tmc_read(REG_GSTAT, &data);
-      /*Serial.print("GSTAT:     0x0");
-      Serial.print(data, HEX);
-      Serial.print("\t - ");
-      Serial.print("Status: 0x");
-      Serial.print(s, HEX);*/
-      //make steps
 
       if (s & 0x01) Serial.print(" reset");
       if (s & 0x02) Serial.print(" error");
@@ -376,7 +383,7 @@ void setup() {
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
-  for (uint8_t number = 0; number < 10; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
+  for (uint8_t number = 0; number < numOfButtons; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
     int row = 0;
     int col = number;
     int buttonWidth = BUTTON_W;
@@ -406,49 +413,13 @@ void setup() {
                                BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
                                buttonWidth, BUTTON_H, ILI9341_WHITE, buttoncolors[number], ILI9341_WHITE,
                                buttonlabels[number], BUTTON_TEXTSIZE);
-    buttons[number].drawButton();
   }
-  Serial.println("buttons");
-  long calctime = time;
-  int counterT = sizeof(textfield) - 1;
-  textfield[counterT] = 0;
-  counterT--;
-  textfield[counterT] = calctime % 10 + '0';
-  calctime = calctime / 10;
-  counterT--;
-  textfield[counterT] = calctime % 6 + '0';
-  calctime = calctime / 6;
-  counterT--;
-  textfield[counterT] = 's';
-  counterT--;
-  textfield[counterT] = ' ';
-  counterT--;
-  if (calctime == 0) {
-    textfield[counterT] = '0';
-    counterT--;
-  }
-  while (calctime > 0) {
-    Serial.println(calctime);
-    textfield[counterT] = calctime % 10 + '0';
-    calctime = calctime / 10;
-    counterT--;
-  }
-  textfield[counterT] = 'm';
-  counterT--;
-  while (counterT >= 0) {
-    textfield[counterT] = ' ';
-    counterT--;
-  }
-  // create 'text field'
-  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
-  tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
-  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-  tft.setTextSize(TEXT_TSIZE);
-  tft.print(textfield);
+
+  drawMainScreen();
 }
 
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
-void timedMove(long moveTime) {
+void timedMove(unsigned long moveTime) {
   retract = true;
   /*if (moveTime < 30) {
     moveTime = 30;
@@ -456,7 +427,7 @@ void timedMove(long moveTime) {
   bool movingforward = true;
   destinationPosition = maxPosition;
   timePerMove = 1200; // in microseconds
-  maxTimePerMove = (moveTime * 1000000 / (maxPosition - currentPosition));
+  maxTimePerMove = (moveTime * 1000 / (maxPosition - currentPosition));
   if (maxTimePerMove < 0) {
     movingforward = false;//doesn't seem to work right
     destinationPosition = 0;
@@ -470,6 +441,7 @@ void timedMove(long moveTime) {
   if (timePerMove < maxTimePerMove) {
     timePerMove = maxTimePerMove;
   }
+  timedMovement = true;
   start_move(movingforward, timePerMove);
   //Serial.println(timePerMove);
 
@@ -513,10 +485,130 @@ void moveCart(int rotations, int moveDirectionTransfer) {
   }
 }
 
+void setEnd() {
+  maxPosition = currentPosition;
+  if (maxPosition < moveSize) {
+    maxPosition = moveSize;
+  }
+  eepromWriteLong(0, maxPosition);
+}
+
+void playTune(int notes[], int durations[], int BPM)
+{
+  int tuneSize = sizeof(melody) / sizeof(int);
+
+  // iterate over the notes of the tune:
+  for (int thisNote = 0; thisNote < tuneSize; thisNote++) {
+
+    // For details on calculating the note duration using the tempo and the note type,
+    // see http://bradthemad.org/guitar/tempo_explanation.php.
+    // A quarter note at 60 BPM lasts exactly one second and at 120 BPM - half a second.
+
+    int noteDuration = (int)((1000 * (60 * 4 / BPM)) / durations[thisNote] + 0.);
+    tone(buzzerPin, notes[thisNote], noteDuration);
+
+    // to distinguish the notes, set a minimum time between them.
+    // the note's duration + 20% seems to work well:
+    int pauseBetweenNotes = noteDuration * 1.20;
+    delay(pauseBetweenNotes);
+    // stop the tone playing:
+    noTone(buzzerPin);
+  }
+}
+
+void writeTimeField() {
+  long calctime = time / 1000;
+  int counterT = sizeof(textfield) - 1;
+  textfield[counterT] = 0;
+  counterT--;
+  textfield[counterT] = calctime % 10 + '0';
+  calctime = calctime / 10;
+  counterT--;
+  textfield[counterT] = calctime % 6 + '0';
+  calctime = calctime / 6;
+  counterT--;
+  textfield[counterT] = ':';
+  counterT--;
+  if (calctime == 0) {
+    textfield[counterT] = '0';
+    counterT--;
+  }
+  while (calctime > 0) {
+    Serial.println(calctime);
+    textfield[counterT] = calctime % 10 + '0';
+    calctime = calctime / 10;
+    counterT--;
+  }
+  while (counterT >= 0) {
+    textfield[counterT] = ' ';
+    counterT--;
+  }
+  // update the current time text field
+  Serial.println(textfield);
+  tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
+  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+  tft.setTextSize(TEXT_TSIZE);
+  tft.print(textfield);
+}
+
+void drawMainScreen() {
+  tft.fillScreen(BLACK);
+
+  for (uint8_t number = 0; number < numOfButtons; number++) {
+    if (number != 3 && number != 4) {
+      buttons[number].drawButton();
+    }
+  }
+
+  tft.drawRect(0, 120, 240, 60, WHITE);
+  int rectX = map(timeIncrement * 10000, 90000, 150000, tft.width(), 0);
+  tft.fillRect(rectX - 1, 121, tft.width() - rectX, 58, GREEN);
+  tft.fillRect(1, 121, rectX - 2, 58, BLACK); // need to set fill dynamically
+  time = pow(EULER, timeIncrement);
+
+  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
+  writeTimeField();
+}
+
 #define MINPRESSURE 10
 #define MAXPRESSURE 1000
 
+bool redraw = false;
+
+void confirm(void methodToCall()) {
+  tft.fillScreen(WHITE);
+  tft.fillRect(20, 270, 80, 30, GREEN);
+  tft.fillRect(140, 270, 80, 30, RED);
+  while (1) {
+    digitalWrite(13, HIGH);
+    TSPoint o = ts.getPoint();
+    digitalWrite(13, LOW);
+    pinMode(XM, OUTPUT);
+    pinMode(YP, OUTPUT);
+    o.x = map(o.x, TS_MINX, TS_MAXX, tft.width(), 0);
+    o.y = (tft.height() - map(o.y, TS_MINY, TS_MAXY, tft.height(), 0));
+    if (o.z > MINPRESSURE && o.z < MAXPRESSURE) {
+      if (o.y >= 270 && o.y <= 300) {
+        if (o.x <= 100 && o.x >= 20) {
+          drawMainScreen();
+          methodToCall();
+          return;
+        } else if (o.x >= 140 && o.x <= 220) {
+          drawMainScreen();
+          return;
+        }
+      }
+    }
+  }
+}
+
 void loop() {
+  if (redraw) {
+    drawMainScreen();
+    redraw = false;
+    tft.drawRect(0, 120, 240, 60, BLUE);
+  }
+
   //manual = false;
   timer.run();
   digitalWrite(13, HIGH);
@@ -532,22 +624,34 @@ void loop() {
     // scale from 0->1023 to tft.width
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
+    if (p.y >= 120 && p.y <= 180 && p.x > 1 && p.x <= tft.width()) {
+      tft.drawRect(0, 120, 240, 60, WHITE);
+      tft.fillRect(p.x - 1, 121, tft.width() - p.x, 58, GREEN);
+      tft.fillRect(1, 121, p.x - 2, 58, BLACK);
+      timeIncrement = map(p.x, tft.width(), 0, 90000, 150000) / ((double) 10000);
+      time = pow(EULER, timeIncrement);
+      writeTimeField();
+    }
     //tft.fillScreen(YELLOW);
   } else {
     //tft.fillScreen(BLACK);
   }
-  for (uint8_t b = 0; b < 10; b++) {
-    if (buttons[b].contains(p.x, p.y)) {
-      //Serial.print("Pressing: "); Serial.println(b);
-      buttons[b].press(true); // tell the button it is pressed
-    } else {
-      buttons[b].press(false); // tell the button it is NOT pressed
+  for (uint8_t b = 0; b < numOfButtons; b++) {
+    if (b != 3 && b != 4) {
+      if (buttons[b].contains(p.x, p.y)) {
+        //Serial.print("Pressing: "); Serial.println(b);
+        buttons[b].press(true); // tell the button it is pressed
+      } else {
+        buttons[b].press(false); // tell the button it is NOT pressed
+      }
     }
   }
-  for (uint8_t b = 0; b < 10; b++) {
+  for (uint8_t b = 0; b < numOfButtons; b++) {
     if (buttons[b].justReleased()) {
       // Serial.print("Released: "); Serial.println(b);
-      buttons[b].drawButton(); // draw normal
+      if (b != 3 && b != 4) {
+        buttons[b].drawButton(); // draw normal
+      }
     }
 
     if (buttons[b].justPressed()) {
@@ -559,65 +663,34 @@ void loop() {
         // if a numberpad button, append the relevant # to the textfield
         if (b >= 3 && b <= 6) {
           if (b == 3) {
-            time += 1;
+            //time += 1;
           }
           else if (b == 4) {
-            time -= 1;
+            //time -= 1;
           }
           else if (b == 5) {
-            time += 10;
+            timeIncrement += .05;
+            time = pow(EULER, timeIncrement);
           }
           else if (b == 6) {
-            time -= 10;
+            timeIncrement -= .05;
+            time = pow(EULER, timeIncrement);
           }
-          if (time < 0) {
-            time = 0;
+          if (timeIncrement < 9) {
+            timeIncrement = 9;
+            time = pow(EULER, timeIncrement);
           }
-          if (time > 1200) {
-            time = 1200;
+          if (timeIncrement > 14.95) {
+            timeIncrement = 14.95;
+            time = pow(EULER, timeIncrement);
           }
-          long calctime = time;
-          int counterT = sizeof(textfield) - 1;
-          textfield[counterT] = 0;
-          counterT--;
-          textfield[counterT] = calctime % 10 + '0';
-          calctime = calctime / 10;
-          counterT--;
-          textfield[counterT] = calctime % 6 + '0';
-          calctime = calctime / 6;
-          counterT--;
-          textfield[counterT] = 's';
-          counterT--;
-          textfield[counterT] = ' ';
-          counterT--;
-          if (calctime == 0) {
-            textfield[counterT] = '0';
-            counterT--;
-          }
-          while (calctime > 0) {
-            Serial.println(calctime);
-            textfield[counterT] = calctime % 10 + '0';
-            calctime = calctime / 10;
-            counterT--;
-          }
-          textfield[counterT] = 'm';
-          counterT--;
-          while (counterT >= 0) {
-            textfield[counterT] = ' ';
-            counterT--;
-          }
-          // update the current time text field
-          Serial.println(textfield);
-          tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
-          tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-          tft.setTextSize(TEXT_TSIZE);
-          tft.print(textfield);
+          int rectX = map(timeIncrement * 10000, 90000, 150000, tft.width(), 0);
+          tft.fillRect(rectX - 1, 121, tft.width() - rectX, 58, GREEN);
+          tft.fillRect(1, 121, rectX - 2, 58, BLACK); // need to set fill dynamically
+          writeTimeField();
         } else if (b == 9) {
-          maxPosition = currentPosition;
-          if (maxPosition < moveSize) {
-            maxPosition = moveSize;
-          }
-          eepromWriteLong(0, maxPosition);
+          void (*functionHolder)() = &setEnd;
+          confirm(functionHolder);
         } else if (b == 1) {
           goHome();
         }
@@ -627,26 +700,6 @@ void loop() {
           manual = true;
           retract = false;
         }
-        /*if (homePosition < 0){
-          homePosition = 0;
-        }
-        long calchome = homePosition;
-        int counterP = sizeof(hometextfield) - 1;
-        hometextfield[counterP] = 0;
-        counterP--;
-        Serial.println(calchome / 10);
-        while (calchome / 10 > 0) {
-          Serial.println(calchome);
-          hometextfield[counterP] = calchome % 10 + '0';
-          calchome = calchome / 10;
-          counterP--;
-        }
-        hometextfield[counterP] = calchome % 10 + '0';
-        cousnterP--;
-        while (counterP >= 0) {
-          hometextfield[counterP] = ' ';
-          counterP--;
-        }*/
         delay(100);
       }
     }
@@ -671,137 +724,7 @@ void loop() {
       moveCart(1, -1);
     }
   }
-  /*if (Serial.available() > 0) { //serial is officially depricated since it did not receive updates to conform to new methodic stopping and starting
-    timePerMove = 1200; // in milliseconds
-    maxTimePerMove = 600; //in milliseconds
-    maxSpeed = 360;
-    rotationSpeed = 160;
-    String input = Serial.readString();
-    Serial.print("I received: ");
-    Serial.println(input);
-    moving = true;
-    digitalWrite(EN_PIN, LOW);
-    Serial.println(input.charAt(0));
-    if (input.charAt(0) == 'p') {
-      input = input.substring(1, input.length());
-      bool overide = false;
-      if (input.charAt(0) == 'o') {
-        overide = true;
-        input = input.substring(1, input.length());
-      }
-      Serial.println("chopped input:" + input);
-      destinationPosition = input.toInt(); //toInt apparently returns a long according to forums
-      //moving = false; //remove later
-      Serial.print("destination position:");
-      Serial.println(destinationPosition);
-      if (destinationPosition < currentPosition) {
-        //retracting = true;
-        moveDirection = -1;
-        if (overide == true) {
-          currentPosition = 100000;//note after the change overide will only move it 1/10th of the way down;
-          //I think this is a fine change
-        }
-      } else {
-        moveDirection = 1;
-        if (overide == true) {
-          currentPosition = -100000;
-        }
-      }
-    }
-    else if (input.charAt(0) == 'z') {
-      moving = false;
-      digitalWrite(EN_PIN, HIGH);
-      currentPosition = 0;
-    } else if (input.charAt(0) == 't') {
-      input = input.substring(1, input.length());
-      long moveTime = input.toInt(); //toInt apparently returns a long according to forums
-      timedMove(moveTime);
-    }
-    else if (input.charAt(0) == 's') {
-      moving = false;
-      digitalWrite(EN_PIN, HIGH);
-
-      Serial.println(currentPosition);
-    } else if (input.charAt(0) == 'h') {
-      moving = false;
-      digitalWrite(EN_PIN, HIGH);
-
-      input = input.substring(1, input.length());
-      homePosition = moveSize * input.toInt(); //toInt apparently returns a long according to forums
-    } else if (input.charAt(0) == 'r') {
-      goHome();
-    }
-    else {
-      Serial.println(moving);
-      timeToMove = input.toInt();
-      moveDirection = 1;
-      //actuator.setSpeed(rotationSpeed);
-      destinationPosition = 193;
-      if (timeToMove < 0) {
-        //retracting = true;
-        timeToMove = timeToMove * -1;
-        moveDirection = -1;
-        destinationPosition = 0;
-      }
-      betweenSteps = timeToMove * 1000 / maxPosition;
-      Serial.println(timeToMove);
-      Serial.println(betweenSteps);
-      if (timeToMove > 0) { // make sure to double check that you can't set double timers.
-        //timer.deleteTimer(1); causes compile error
-        timer.setTimeout(timeToMove * 1000, timerDone);
-        timeToMove = 0;
-      }
-    }
-  }*/
   if (moving == true) {
-    //Serial.println(currentPosition);
-    /*if (moveDirection == 1) {
-      digitalWrite(29, HIGH);
-    } else {
-      digitalWrite(29, LOW);
-    }*/
-    /*if (timePerMove < 5000) {
-      for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
-        for (int k = 0; k < moveSize / 10; k++) {
-          digitalWrite(27, HIGH); //Trigger one step forward
-          delayMicroseconds(timePerMove);
-          digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
-          delayMicroseconds(timePerMove);
-        }
-        if (buttons[2].justReleased()) {
-          moving = false;
-          digitalWrite(EN_PIN, HIGH);
-
-        }
-      }
-      for (int j = 0; j < (moveSize % 10); j++) {
-        digitalWrite(27, HIGH); //Trigger one step forward
-        delayMicroseconds(timePerMove);
-        digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
-        delayMicroseconds(timePerMove);
-      }
-    } else {
-      for (int i = 0; i < 10; i++) { //current plan, double total loop length while adding an inner loop; the outer loop runs the inner plus a check on the stop button
-        for (int k = 0; k < moveSize / 10; k++) {
-          digitalWrite(27, HIGH); //Trigger one step forward
-          delay(timePerMove / 1000);
-          digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
-          delay(timePerMove / 1000);
-        }
-        if (buttons[2].justReleased()) {
-          moving = false;
-          digitalWrite(EN_PIN, HIGH);
-
-        }
-      }
-      for (int j = 0; j < (moveSize % 10); j++) {
-        digitalWrite(27, HIGH); //Trigger one step forward
-        delay(timePerMove / 1000);
-        digitalWrite(27, LOW); //Pull step pin low so it can be triggered again
-        delay(timePerMove / 1000);
-      }
-    }
-    currentPosition += moveDirection * moveSize;*/
     if (timePerMove != maxTimePerMove) {
       delay(30);
       if (timePerMove > maxTimePerMove) {
@@ -834,6 +757,4 @@ void loop() {
       }
     }
   }
-  // delay(betweenSteps-1);
-  //Serial.println(currentPosition);
 }
