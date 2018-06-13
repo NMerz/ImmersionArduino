@@ -1,8 +1,2 @@
 # ImmersionArduino
-TODO:
-Calibration,
-Directions,
-Detachable or user level,
-Arduino power,
-
-Redo home (user gets up and down; set home at move start location)
+Control code for the Creeping Bite acid etching machine. The machine is used to help artists acheive a gradient for etching work.
