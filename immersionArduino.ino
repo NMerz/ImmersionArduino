@@ -19,19 +19,6 @@
 
 #define LCD_RESET A4 // Can alternately just connect to Arduino's reset pin
 
-// When using the BREAKOUT BOARD only, use these 8 data lines to the LCD:
-// For the Arduino Uno, Duemilanove, Diecimila, etc.:
-// D0 connects to digital pin 8 (Notice these are
-// D1 connects to digital pin 9 NOT in order!)
-// D2 connects to digital pin 2
-// D3 connects to digital pin 3
-// D4 connects to digital pin 4
-// D5 connects to digital pin 5
-// D6 connects to digital pin 6
-// D7 connects to digital pin 7
-// For the Arduino Mega, use digital pins 22 through 29
-// (on the 2-row header at the end of the board).
-
 // Assign human-readable names to some common 16-bit color values:
 #define  BLACK 0x0000
 #define BLUE 0x001F
@@ -84,16 +71,16 @@ int tempo = 60; // tempo for the melody expressed in beats per minute (BPM)
 #define BUTTON_TEXTSIZE 2
 
 // text box where numbers go
-#define TEXT_X 10
-#define TEXT_Y 10
+#define TEXT_X 28
+#define TEXT_Y 25
 #define TEXT_W 220
 #define TEXT_H 50
-#define TEXT_TSIZE 3
+#define TEXT_TSIZE 4
 #define TEXT_TCOLOR ILI9341_MAGENTA
 
-#define TEXT_LEN 12
+#define TEXT_LEN 5
 char textfield[TEXT_LEN + 1] = "";
-char hometextfield[TEXT_LEN + 1] = "";
+//char hometextfield[TEXT_LEN + 1] = "";
 uint8_t textfield_i = 0;
 
 #define YP A3 // must be an analog pin, use "An" notation!
@@ -141,20 +128,21 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 // a simpler declaration can optionally be used:
 // Elegoo_TFTLCD tft;
 
-const int numOfButtons = 10;
+const int numOfButtons = 16;
 
 Elegoo_GFX_Button buttons[numOfButtons];
 
-char buttonlabels[numOfButtons][11] = {"Dip", "Top", "Stop", "ERROR", "ERROR", "+", "-", "v", "^", "Set End"};
+/*char buttonlabels[numOfButtons][11] = {"Dip", "Top", "Stop", "ERROR", "ERROR", "+", "-", "v", "^", "Set End"};
 uint16_t buttoncolors[numOfButtons] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED,
                                        ILI9341_BLUE, ILI9341_BLUE,
                                        ILI9341_BLUE, ILI9341_BLUE,
                                        ILI9341_BLUE, ILI9341_BLUE,
                                        ILI9341_DARKGREY
-                                      };
+                                      };*/
 
 //break between GUI and controls
 
+char timeChar[6] = {'0', ' 1', ':', '2', '0', 0};
 long timeToMove = 0; //total move time in seconds
 long timePerMove = 1200; // in microseconds
 long maxTimePerMove = 600; //in mircroseconds
@@ -245,6 +233,8 @@ long eepromReadLong(int startByte)
 }*/
 
 void start_move(boolean forward, long interval) {
+  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, RED, BLACK, "Stop", 2);
+  buttons[10].drawButton();
   timePerMove = interval;
   if (forward) {
     moveDirection = 1;
@@ -270,6 +260,8 @@ void stop_move() {
   digitalWrite(EN_PIN, HIGH);
   manual = false;
   retract = false;
+  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, ILI9341_GREEN, BLACK, "Start", 2);
+  buttons[10].drawButton();
   if (timedMovement == true) {
     playTune(melody, durations, tempo);
   }
@@ -383,7 +375,7 @@ void setup() {
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
-  for (uint8_t number = 0; number < numOfButtons; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
+  /*for (uint8_t number = 0; number < numOfButtons; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
     int row = 0;
     int col = number;
     int buttonWidth = BUTTON_W;
@@ -413,9 +405,28 @@ void setup() {
                                BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
                                buttonWidth, BUTTON_H, ILI9341_WHITE, buttoncolors[number], ILI9341_WHITE,
                                buttonlabels[number], BUTTON_TEXTSIZE);
-  }
+  }*/
+  buttons[0].initButton(&tft, 79, 240, 54, 36, BLACK, BLACK, WHITE, "0", 4);
+  buttons[1].initButton(&tft, 35, 114, 54, 36, BLACK, BLACK, WHITE, "1", 4);
+  buttons[2].initButton(&tft, 79, 114, 54, 36, BLACK, BLACK, WHITE, "2", 4);
+  buttons[3].initButton(&tft, 133, 114, 54, 36, BLACK, BLACK, WHITE, "3", 4);
+  buttons[4].initButton(&tft, 35, 156, 54, 36, BLACK, BLACK, WHITE, "4", 4);
+  buttons[5].initButton(&tft, 79, 156, 54, 36, BLACK, BLACK, WHITE, "5", 4);
+  buttons[6].initButton(&tft, 133, 156, 54, 36, BLACK, BLACK, WHITE, "6", 4);
+  buttons[7].initButton(&tft, 35, 198, 54, 36, BLACK, BLACK, WHITE, "7", 4);
+  buttons[8].initButton(&tft, 79, 198, 54, 36, BLACK, BLACK, WHITE, "8", 4);
+  buttons[9].initButton(&tft, 133, 198, 54, 36, BLACK, BLACK, WHITE, "9", 4);
+  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, ILI9341_GREEN, BLACK, "Start", 2);
+  buttons[11].initButton(&tft, 200, 114, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Clear", 2);
+  buttons[12].initButton(&tft, 200, 157, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Top", 2);
+  buttons[13].initButton(&tft, 200, 200, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "^", 2);
+  buttons[14].initButton(&tft, 200, 243, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "v", 2);
+  buttons[15].initButton(&tft, 121, 287, 208, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Set Endpoint", 2);
 
-  drawMainScreen();
+
+
+
+  drawMainScreen(true);
 }
 
 //Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
@@ -516,8 +527,24 @@ void playTune(int notes[], int durations[], int BPM)
   }
 }
 
-void writeTimeField() {
-  long calctime = time / 1000;
+void timeCharToInt() {
+  if (timeChar[0] != ' ') {
+    time = (timeChar[0] - '0') * 600;
+  }
+  if (timeChar[1] != ' ') {
+    time += (timeChar[1] - '0') * 60;
+  }
+  if (timeChar[3] != ' ') {
+    time += (timeChar[3] - '0') * 10;
+  }
+  if (timeChar[4] != ' ') {
+    time += (timeChar[4] - '0');
+  }
+  time *= 1000;
+}
+
+void updateTime() {
+  /*long calctime = time / 1000;
   int counterT = sizeof(textfield) - 1;
   textfield[counterT] = 0;
   counterT--;
@@ -529,10 +556,6 @@ void writeTimeField() {
   counterT--;
   textfield[counterT] = ':';
   counterT--;
-  if (calctime == 0) {
-    textfield[counterT] = '0';
-    counterT--;
-  }
   while (calctime > 0) {
     Serial.println(calctime);
     textfield[counterT] = calctime % 10 + '0';
@@ -540,45 +563,65 @@ void writeTimeField() {
     counterT--;
   }
   while (counterT >= 0) {
-    textfield[counterT] = ' ';
+    textfield[counterT] = '0';
     counterT--;
-  }
+  }*/
   // update the current time text field
-  Serial.println(textfield);
+  //Serial.println(textfield);
   tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
-  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+  tft.setTextColor(BLACK, WHITE);
   tft.setTextSize(TEXT_TSIZE);
-  tft.print(textfield);
+  tft.print(timeChar);
 }
 
-void drawMainScreen() {
-  tft.fillScreen(BLACK);
+/*void timeShiftLeft() {
+  time = time/1000;
+  int calcMin = time / 60;
+  int calcSec = time % 60;
+  time = (calcMin % 10) * 600;
+  time += (calcSec / 10) * 60;
+  time += (calcSec % 10) * 10;
+  time = time*1000;
+}*/
 
-  for (uint8_t number = 0; number < numOfButtons; number++) {
-    if (number != 3 && number != 4) {
-      buttons[number].drawButton();
-    }
+void drawMainScreen(bool background) {
+  if (background) {
+    tft.fillScreen(BLACK);
   }
 
-  tft.drawRect(0, 120, 240, 60, WHITE);
-  int rectX = map(timeIncrement * 10000, 90000, 150000, tft.width(), 0);
-  tft.fillRect(rectX - 1, 121, tft.width() - rectX, 58, GREEN);
-  tft.fillRect(1, 121, rectX - 2, 58, BLACK); // need to set fill dynamically
-  time = pow(EULER, timeIncrement);
-
-  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
-  writeTimeField();
+  for (uint8_t number = 0; number < numOfButtons; number++) {
+    buttons[number].drawButton();
+  }
+  tft.fillRoundRect(17, 21, 144, 56, 5, ILI9341_WHITE);
+  updateTime();
 }
 
 #define MINPRESSURE 10
 #define MAXPRESSURE 1000
 
-bool redraw = false;
-
 void confirm(void methodToCall()) {
-  tft.fillScreen(WHITE);
-  tft.fillRect(20, 270, 80, 30, GREEN);
-  tft.fillRect(140, 270, 80, 30, RED);
+  tft.fillRoundRect(22, 68, 196, 206, 5, ILI9341_LIGHTGREY);
+  tft.fillRoundRect(36, 221, 76, 34, 5, WHITE);
+  tft.fillRoundRect(128, 221, 76, 34, 5, WHITE);
+  tft.setTextColor(BLACK, ILI9341_LIGHTGREY);
+  tft.setTextSize(2);
+  tft.setCursor(31, 86);
+  tft.print("Are you sure");
+  tft.setCursor(31, 106);
+  tft.print("you want to set");
+  tft.setCursor(31, 126);
+  tft.print("the current");
+  tft.setCursor(31, 146);
+  tft.print("position as the");
+  tft.setCursor(31, 166);
+  tft.print("lower endpoint?");
+  tft.setCursor(64, 230);
+  tft.setTextColor(BLACK, WHITE);
+  tft.setTextSize(2);
+  tft.print("OK");
+  tft.setCursor(132, 230);
+  tft.print("Cancel");
+
   while (1) {
     digitalWrite(13, HIGH);
     TSPoint o = ts.getPoint();
@@ -588,26 +631,23 @@ void confirm(void methodToCall()) {
     o.x = map(o.x, TS_MINX, TS_MAXX, tft.width(), 0);
     o.y = (tft.height() - map(o.y, TS_MINY, TS_MAXY, tft.height(), 0));
     if (o.z > MINPRESSURE && o.z < MAXPRESSURE) {
-      if (o.y >= 270 && o.y <= 300) {
-        if (o.x <= 100 && o.x >= 20) {
-          drawMainScreen();
+      if (o.y >= 221 && o.y <= 255) {
+        if (o.x <= 117 && o.x >= 47) {
           methodToCall();
+          //tft.fillRoundRect(22, 68, 196, 206, 5, BLACK);
+          drawMainScreen(true);
           return;
-        } else if (o.x >= 140 && o.x <= 220) {
-          drawMainScreen();
+        } else if (o.x >= 127 && o.x <= 197) {
+          //tft.fillRoundRect(22, 68, 196, 206, 5, BLACK);
+          drawMainScreen(true);
           return;
         }
       }
     }
   }
 }
-
+int writer = 0;
 void loop() {
-  if (redraw) {
-    drawMainScreen();
-    redraw = false;
-    tft.drawRect(0, 120, 240, 60, BLUE);
-  }
 
   //manual = false;
   timer.run();
@@ -624,81 +664,58 @@ void loop() {
     // scale from 0->1023 to tft.width
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
-    if (p.y >= 120 && p.y <= 180 && p.x > 1 && p.x <= tft.width()) {
-      tft.drawRect(0, 120, 240, 60, WHITE);
-      tft.fillRect(p.x - 1, 121, tft.width() - p.x, 58, GREEN);
-      tft.fillRect(1, 121, p.x - 2, 58, BLACK);
-      timeIncrement = map(p.x, tft.width(), 0, 90000, 150000) / ((double) 10000);
-      time = pow(EULER, timeIncrement);
-      writeTimeField();
-    }
-    //tft.fillScreen(YELLOW);
-  } else {
-    //tft.fillScreen(BLACK);
   }
   for (uint8_t b = 0; b < numOfButtons; b++) {
-    if (b != 3 && b != 4) {
-      if (buttons[b].contains(p.x, p.y)) {
-        //Serial.print("Pressing: "); Serial.println(b);
-        buttons[b].press(true); // tell the button it is pressed
-      } else {
-        buttons[b].press(false); // tell the button it is NOT pressed
-      }
+    if (buttons[b].contains(p.x, p.y)) {
+      //Serial.print("Pressing: "); Serial.println(b);
+      buttons[b].press(true); // tell the button it is pressed
+    } else {
+      buttons[b].press(false); // tell the button it is NOT pressed
     }
   }
   for (uint8_t b = 0; b < numOfButtons; b++) {
     if (buttons[b].justReleased()) {
       // Serial.print("Released: "); Serial.println(b);
-      if (b != 3 && b != 4) {
-        buttons[b].drawButton(); // draw normal
-      }
+      buttons[b].drawButton(); // draw normal
     }
 
     if (buttons[b].justPressed()) {
-      if (b == 2) {
+
+      if (b == 10 && moving == true) {
         stop_move();
-        buttons[b].drawButton(true); // draw invert!
+        delay(100);
       } else if (moving == false) {
-        buttons[b].drawButton(true); // draw invert!
-        // if a numberpad button, append the relevant # to the textfield
-        if (b >= 3 && b <= 6) {
-          if (b == 3) {
-            //time += 1;
+        if (b <= 9 && b >= 0) {
+          if (((writer == 0 || writer == 3) && b < 6) || (writer == 1 || writer == 4)) {
+            timeChar[writer] = b + '0';
+            writer++;
+            if (writer == 2) {
+              writer++;
+            }
+            if (writer > 4) {
+              writer = 0;
+            }
+            updateTime();
           }
-          else if (b == 4) {
-            //time -= 1;
-          }
-          else if (b == 5) {
-            timeIncrement += .05;
-            time = pow(EULER, timeIncrement);
-          }
-          else if (b == 6) {
-            timeIncrement -= .05;
-            time = pow(EULER, timeIncrement);
-          }
-          if (timeIncrement < 9) {
-            timeIncrement = 9;
-            time = pow(EULER, timeIncrement);
-          }
-          if (timeIncrement > 14.95) {
-            timeIncrement = 14.95;
-            time = pow(EULER, timeIncrement);
-          }
-          int rectX = map(timeIncrement * 10000, 90000, 150000, tft.width(), 0);
-          tft.fillRect(rectX - 1, 121, tft.width() - rectX, 58, GREEN);
-          tft.fillRect(1, 121, rectX - 2, 58, BLACK); // need to set fill dynamically
-          writeTimeField();
-        } else if (b == 9) {
+          delay(100);
+        } else if (b == 15) {
           void (*functionHolder)() = &setEnd;
           confirm(functionHolder);
-        } else if (b == 1) {
+        } else if (b == 12) {
           goHome();
         }
-        else if (b == 0) {
+        else if (b == 10) {
           timedMove(time);
-        } else if (b == 7 || b == 8) {
+        } else if (b == 13 || b == 14) {
           manual = true;
           retract = false;
+        } else if (b == 11) {
+          timeChar[0] = ' ';
+          timeChar[1] = ' ';
+          timeChar[3] = ' ';
+          timeChar[4] = ' ';
+          writer = 0;
+          updateTime();
         }
         delay(100);
       }
@@ -718,9 +735,9 @@ void loop() {
     //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
   }
   if (moving == false || manual == true) {
-    if (buttons[7].isPressed() == true) {
+    if (buttons[14].isPressed() == true) {
       moveCart(1, 1);
-    } else if (buttons[8].isPressed() == true) {
+    } else if (buttons[13].isPressed() == true) {
       moveCart(1, -1);
     }
   }
