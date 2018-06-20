@@ -8,6 +8,8 @@
 #include <TimerThree.h>
 #include <Math.h>
 
+#include "splashScreen.h"
+
 
 // The control pins for the LCD can be assigned to any digital or
 // analog pins...but we'll use the analog pins as this allows us to
@@ -50,14 +52,17 @@
 //#define ILI9341_GREENYELLOW 0xAFE5 /* 173, 255, 47 */
 //#define ILI9341_PINK 0xF81F
 
+#define NOTE_A4  440
+#define NOTE_CS5 554
+#define NOTE_E5  659
 
 const int buzzerPin = 47;
 
 // Array with the notes in the melody (see pitches.h for reference)
-int melody[] = {431};
+int melody[] = {NOTE_A4, NOTE_CS5, NOTE_E5};
 
 // Array with the note durations: a quarter note has a duration of 4, half note 2 etc.
-int durations[]  = {1};
+int durations[]  = {8,8,8};
 
 int tempo = 60; // tempo for the melody expressed in beats per minute (BPM)
 
@@ -92,7 +97,7 @@ uint8_t textfield_i = 0;
 #define TS_MINX 120
 #define TS_MAXX 900
 
-#define TS_MINY 70
+#define TS_MINY 70 //70
 #define TS_MAXY 920
 // We have a status line for like, is FONA working
 #define STATUS_X 10
@@ -128,7 +133,7 @@ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 // a simpler declaration can optionally be used:
 // Elegoo_TFTLCD tft;
 
-const int numOfButtons = 16;
+const int numOfButtons = 17;
 
 Elegoo_GFX_Button buttons[numOfButtons];
 
@@ -143,6 +148,7 @@ uint16_t buttoncolors[numOfButtons] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9
 //break between GUI and controls
 
 char timeChar[6] = {'0', ' 1', ':', '2', '0', 0};
+long elapsedTime = 0;
 long timeToMove = 0; //total move time in seconds
 long timePerMove = 1200; // in microseconds
 long maxTimePerMove = 600; //in mircroseconds
@@ -233,8 +239,7 @@ long eepromReadLong(int startByte)
 }*/
 
 void start_move(boolean forward, long interval) {
-  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, RED, BLACK, "Stop", 2);
-  buttons[10].drawButton();
+  buttons[16].drawButton();
   timePerMove = interval;
   if (forward) {
     moveDirection = 1;
@@ -243,6 +248,7 @@ void start_move(boolean forward, long interval) {
     moveDirection = -1;
     digitalWrite(29, LOW);
   }
+  elapsedTime = millis();
   moving = true;
   digitalWrite(EN_PIN, LOW);
   Timer3.attachInterrupt(step_motor, interval);
@@ -254,21 +260,22 @@ void step_motor() {
   currentPosition += moveDirection;
 }
 
-void stop_move() {
+void stop_move(bool button) {
   Timer3.detachInterrupt();
   moving = false;
   digitalWrite(EN_PIN, HIGH);
   manual = false;
   retract = false;
-  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, ILI9341_GREEN, BLACK, "Start", 2);
   buttons[10].drawButton();
-  if (timedMovement == true) {
+  if (!button && timedMovement == true) {
     playTune(melody, durations, tempo);
   }
   timedMovement = false;
 }
+uint16_t norun = 0;
 
 void setup() {
+  Serial.println(norun);
   maxPosition =  eepromReadLong(0);
 
   pinMode(EN_PIN, OUTPUT);
@@ -290,6 +297,7 @@ void setup() {
   Serial.begin(9600);
   Serial.println("starting");
   //actuator.setSpeed(120);
+
   SPI.begin();
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
   tmc_write(WRITE_FLAG | 0x14,      0xFFFFFUL); //TCOOLTHRS
@@ -300,9 +308,7 @@ void setup() {
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x01008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   digitalWrite(EN_PIN, LOW);
   Timer3.initialize();
-
   tft.reset();
-
   uint16_t identifier = tft.readID();
   if (identifier == 0x0101)
   {
@@ -310,9 +316,35 @@ void setup() {
   }
   tft.begin(identifier);
   tft.setRotation(2);
-  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
-  tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
-  tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+
+  tft.fillScreen(BLACK);
+  uint16_t concatanator = 0;
+  int h = 124 / 2, w = 126, row, col;
+  int buffidx = 0;
+  for (row = 222 - 2 * h; row < 222 - h; row++) { // For each scanline...
+    for (col = 57; col < 183; col++) { // For each pixel...
+      //color expects 16 bit int, but it is stored in bytes
+      buffidx = (col - 57 + (((222 - h) - row - 1) * w)) * 2;
+      concatanator = pgm_read_byte(splashScreenArray2 + buffidx);
+      buffidx++;
+      concatanator += pgm_read_byte(splashScreenArray2 + buffidx) << 8;//front bite is second
+      tft.drawPixel(col, row, concatanator);
+    } // end pixel
+  }
+  for (row = 222 - h; row < 222; row++) { // For each scanline...
+    for (col = 57; col < 183; col++) { // For each pixel...
+      //color expects 16 bit int, but it is stored in bytes
+      buffidx = (col - 57 + (((222) - row - 1) * w)) * 2;
+      concatanator = pgm_read_byte(splashScreenArray1 + buffidx);
+      buffidx++;
+      concatanator += pgm_read_byte(splashScreenArray1 + buffidx) << 8;//front bite is second
+      tft.drawPixel(col, row, concatanator);
+    } // end pixel
+  }
+
+  //  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
+  tft.setCursor(22, 290);
+  tft.setTextColor(WHITE, ILI9341_BLACK);
   tft.setTextSize(TEXT_TSIZE - 1);
   tft.print("Calibrating");
   Serial.println("setup done");
@@ -321,6 +353,23 @@ void setup() {
   uint32_t ms = millis();
   uint32_t data;
   uint8_t s;
+  buttons[0].initButton(&tft, 79, 240, 54, 36, BLACK, BLACK, WHITE, "0", 4);
+  buttons[1].initButton(&tft, 35, 114, 54, 36, BLACK, BLACK, WHITE, "1", 4);
+  buttons[2].initButton(&tft, 79, 114, 54, 36, BLACK, BLACK, WHITE, "2", 4);
+  buttons[3].initButton(&tft, 133, 114, 54, 36, BLACK, BLACK, WHITE, "3", 4);
+  buttons[4].initButton(&tft, 35, 156, 54, 36, BLACK, BLACK, WHITE, "4", 4);
+  buttons[5].initButton(&tft, 79, 156, 54, 36, BLACK, BLACK, WHITE, "5", 4);
+  buttons[6].initButton(&tft, 133, 156, 54, 36, BLACK, BLACK, WHITE, "6", 4);
+  buttons[7].initButton(&tft, 35, 198, 54, 36, BLACK, BLACK, WHITE, "7", 4);
+  buttons[8].initButton(&tft, 79, 198, 54, 36, BLACK, BLACK, WHITE, "8", 4);
+  buttons[9].initButton(&tft, 133, 198, 54, 36, BLACK, BLACK, WHITE, "9", 4);
+  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, ILI9341_GREEN, BLACK, "Start", 2);
+  buttons[11].initButton(&tft, 200, 114, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Clear", 2);
+  buttons[12].initButton(&tft, 200, 157, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Top", 2);
+  buttons[13].initButton(&tft, 200, 200, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "^", 2);
+  buttons[14].initButton(&tft, 200, 243, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "v", 2);
+  buttons[15].initButton(&tft, 121, 287, 208, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Set Endpoint", 2);
+  buttons[16].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, RED, BLACK, "Stop", 2);
   while (homing) {
     ms = millis();
 
@@ -371,61 +420,9 @@ void setup() {
   currentPosition = -moveSize * 3;
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
   goHome();
-  tft.fillScreen(BLACK);
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
-  /*for (uint8_t number = 0; number < numOfButtons; number++) { //This is messy because it was faster to reuse example and fadangle columns and rows than redo the placement from scratch
-    int row = 0;
-    int col = number;
-    int buttonWidth = BUTTON_W;
-    if (number <= 2) {
-      row = 0;
-    }
-    else if (number > 2) {
-      buttonWidth = buttonWidth * 1.5;
-      row = 1;
-      col -= 3;
-      notFirstRow = 1;
-    }
-    if (number > 4) {
-      row = 2;
-      col -= 2;
-    }
-    if (number > 6) {
-      row = 3;
-      col -= 2;
-    } if (number == 9) {
-      row = 4;
-      col -= 2;
-      buttonWidth = buttonWidth * 2;
-      notFirstRow = 5;
-    }
-    buttons[number].initButton(&tft, BUTTON_X + col * (buttonWidth + BUTTON_SPACING_X) + (buttonWidth - BUTTON_W) - BUTTON_SPACING_X / 2 * notFirstRow,
-                               BUTTON_Y + row * (BUTTON_H + BUTTON_SPACING_Y), // x, y, w, h, outline, fill, text
-                               buttonWidth, BUTTON_H, ILI9341_WHITE, buttoncolors[number], ILI9341_WHITE,
-                               buttonlabels[number], BUTTON_TEXTSIZE);
-  }*/
-  buttons[0].initButton(&tft, 79, 240, 54, 36, BLACK, BLACK, WHITE, "0", 4);
-  buttons[1].initButton(&tft, 35, 114, 54, 36, BLACK, BLACK, WHITE, "1", 4);
-  buttons[2].initButton(&tft, 79, 114, 54, 36, BLACK, BLACK, WHITE, "2", 4);
-  buttons[3].initButton(&tft, 133, 114, 54, 36, BLACK, BLACK, WHITE, "3", 4);
-  buttons[4].initButton(&tft, 35, 156, 54, 36, BLACK, BLACK, WHITE, "4", 4);
-  buttons[5].initButton(&tft, 79, 156, 54, 36, BLACK, BLACK, WHITE, "5", 4);
-  buttons[6].initButton(&tft, 133, 156, 54, 36, BLACK, BLACK, WHITE, "6", 4);
-  buttons[7].initButton(&tft, 35, 198, 54, 36, BLACK, BLACK, WHITE, "7", 4);
-  buttons[8].initButton(&tft, 79, 198, 54, 36, BLACK, BLACK, WHITE, "8", 4);
-  buttons[9].initButton(&tft, 133, 198, 54, 36, BLACK, BLACK, WHITE, "9", 4);
-  buttons[10].initButton(&tft, 200, 47, 62, 52, ILI9341_LIGHTGREY, ILI9341_GREEN, BLACK, "Start", 2);
-  buttons[11].initButton(&tft, 200, 114, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Clear", 2);
-  buttons[12].initButton(&tft, 200, 157, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Top", 2);
-  buttons[13].initButton(&tft, 200, 200, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "^", 2);
-  buttons[14].initButton(&tft, 200, 243, 62, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "v", 2);
-  buttons[15].initButton(&tft, 121, 287, 208, 34, ILI9341_LIGHTGREY, WHITE, BLACK, "Set Endpoint", 2);
-
-
-
-
   drawMainScreen(true);
 }
 
@@ -438,7 +435,10 @@ void timedMove(unsigned long moveTime) {
   bool movingforward = true;
   destinationPosition = maxPosition;
   timePerMove = 1200; // in microseconds
-  maxTimePerMove = (moveTime * 1000 / (maxPosition - currentPosition));
+  if ((maxPosition - currentPosition) < 10 && (maxPosition - currentPosition) > 0){
+    maxPosition = currentPosition + 10;
+  }
+  maxTimePerMove = (moveTime * 100 / (maxPosition - currentPosition) * 10);//must be maxPosition-currentPosition > 10 || <0
   if (maxTimePerMove < 0) {
     movingforward = false;//doesn't seem to work right
     destinationPosition = 0;
@@ -462,7 +462,7 @@ void timedMove(unsigned long moveTime) {
 void timerDone() {
   //digitalWrite(13, HIGH);
   Serial.print("Timer Done");
-  stop_move();
+  stop_move(false);
 
 }
 
@@ -528,8 +528,9 @@ void playTune(int notes[], int durations[], int BPM)
 }
 
 void timeCharToInt() {
+  time = 0;
   if (timeChar[0] != ' ') {
-    time = (timeChar[0] - '0') * 600;
+    time += (timeChar[0] - '0') * 600;
   }
   if (timeChar[1] != ' ') {
     time += (timeChar[1] - '0') * 60;
@@ -544,34 +545,13 @@ void timeCharToInt() {
 }
 
 void updateTime() {
-  /*long calctime = time / 1000;
-  int counterT = sizeof(textfield) - 1;
-  textfield[counterT] = 0;
-  counterT--;
-  textfield[counterT] = calctime % 10 + '0';
-  calctime = calctime / 10;
-  counterT--;
-  textfield[counterT] = calctime % 6 + '0';
-  calctime = calctime / 6;
-  counterT--;
-  textfield[counterT] = ':';
-  counterT--;
-  while (calctime > 0) {
-    Serial.println(calctime);
-    textfield[counterT] = calctime % 10 + '0';
-    calctime = calctime / 10;
-    counterT--;
-  }
-  while (counterT >= 0) {
-    textfield[counterT] = '0';
-    counterT--;
-  }*/
   // update the current time text field
   //Serial.println(textfield);
   tft.setCursor(TEXT_X + 2, TEXT_Y + 10);
   tft.setTextColor(BLACK, WHITE);
   tft.setTextSize(TEXT_TSIZE);
   tft.print(timeChar);
+  timeCharToInt();
 }
 
 /*void timeShiftLeft() {
@@ -589,7 +569,7 @@ void drawMainScreen(bool background) {
     tft.fillScreen(BLACK);
   }
 
-  for (uint8_t number = 0; number < numOfButtons; number++) {
+  for (uint8_t number = 0; number < numOfButtons - 1; number++) { //last button is stop button and I don't want to draw it in general draw time
     buttons[number].drawButton();
   }
   tft.fillRoundRect(17, 21, 144, 56, 5, ILI9341_WHITE);
@@ -646,9 +626,9 @@ void confirm(void methodToCall()) {
     }
   }
 }
-int writer = 0;
+int buttonPressed = 100;
 void loop() {
-
+  buttonPressed = 100;
   //manual = false;
   timer.run();
   digitalWrite(13, HIGH);
@@ -663,85 +643,79 @@ void loop() {
   if (p.z > MINPRESSURE && p.z < MAXPRESSURE) {
     // scale from 0->1023 to tft.width
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
+    Serial.println(p.x);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
-  }
-  for (uint8_t b = 0; b < numOfButtons; b++) {
-    if (buttons[b].contains(p.x, p.y)) {
-      //Serial.print("Pressing: "); Serial.println(b);
-      buttons[b].press(true); // tell the button it is pressed
-    } else {
-      buttons[b].press(false); // tell the button it is NOT pressed
-    }
-  }
-  for (uint8_t b = 0; b < numOfButtons; b++) {
-    if (buttons[b].justReleased()) {
-      // Serial.print("Released: "); Serial.println(b);
-      buttons[b].drawButton(); // draw normal
-    }
-
-    if (buttons[b].justPressed()) {
-
-      if (b == 10 && moving == true) {
-        stop_move();
-        delay(100);
-      } else if (moving == false) {
-        if (b <= 9 && b >= 0) {
-          if (((writer == 0 || writer == 3) && b < 6) || (writer == 1 || writer == 4)) {
-            timeChar[writer] = b + '0';
-            writer++;
-            if (writer == 2) {
-              writer++;
-            }
-            if (writer > 4) {
-              writer = 0;
-            }
+    Serial.println(p.y);
+    for (uint8_t b = 0; b < numOfButtons; b++) {
+      if (buttons[b].contains(p.x, p.y)) {
+        Serial.println(b);
+        //Serial.print("Pressing: "); Serial.println(b);
+        buttonPressed = b; // tell the button it is pressed
+        if (b == 16 && moving == true) {
+          stop_move(true);
+        } else if (moving == false) {
+          if (b <= 9 && b >= 0) {
+            timeChar[0] = timeChar[1];
+            timeChar[1] = timeChar[3];
+            timeChar[3] = timeChar[4];
+            timeChar[4] = b + '0';
+            updateTime();
+          } else if (b == 15) {
+            void (*functionHolder)() = &setEnd;
+            confirm(functionHolder);
+          } else if (b == 12) {
+            goHome();
+          } else if (b == 10) {
+            timedMove(time);
+          } else if (b == 13 || b == 14) {
+            manual = true;
+            retract = false;
+          } else if (b == 11) {
+            timeChar[0] = ' ';
+            timeChar[1] = ' ';
+            timeChar[3] = ' ';
+            timeChar[4] = ' ';
             updateTime();
           }
-          delay(100);
-        } else if (b == 15) {
-          void (*functionHolder)() = &setEnd;
-          confirm(functionHolder);
-        } else if (b == 12) {
-          goHome();
+          b = numOfButtons;
         }
-        else if (b == 10) {
-          timedMove(time);
-        } else if (b == 13 || b == 14) {
-          manual = true;
-          retract = false;
-        } else if (b == 11) {
-          timeChar[0] = ' ';
-          timeChar[1] = ' ';
-          timeChar[3] = ' ';
-          timeChar[4] = ' ';
-          writer = 0;
-          updateTime();
-        }
-        delay(100);
       }
     }
+    delay(100);
 
-
-    // update the current home text field
-    /*Serial.println(hometextfield);
-    tft.setCursor(TEXT_X + 2, BUTTON_Y + 3 * (BUTTON_H + BUTTON_SPACING_Y)-10);
-    tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-    tft.setTextSize(TEXT_TSIZE);
-    tft.print(hometextfield);*/
-
-    // Stop button
-
-
-    //delay(100); // UI debouncing //only change during copying; I think the rest of the loop will cover this delay and I don't really want to delay the move
   }
+
+
+
   if (moving == false || manual == true) {
-    if (buttons[14].isPressed() == true) {
+    if (buttonPressed == 14) {
       moveCart(1, 1);
-    } else if (buttons[13].isPressed() == true) {
+    } else if (buttonPressed == 13) {
       moveCart(1, -1);
     }
   }
   if (moving == true) {
+    if (timedMovement) {
+      if (millis() - elapsedTime > 1000) {
+        if (timeChar[4] > '0') {
+          timeChar[4]--;
+        } else if (timeChar[3] > '0') {
+          timeChar[3]--;
+          timeChar[4] = '9';
+        } else if (timeChar[1] > '0') {
+          timeChar[1]--;
+          timeChar[3] = '5';
+          timeChar[4] = '9';
+        } else if (timeChar[0] > '0') {
+          timeChar[0]--;
+          timeChar[1] = '9';
+          timeChar[3] = '5';
+          timeChar[4] = '9';
+        }
+        elapsedTime = millis();
+        updateTime();
+      }
+    }
     if (timePerMove != maxTimePerMove) {
       delay(30);
       if (timePerMove > maxTimePerMove) {
@@ -758,19 +732,19 @@ void loop() {
       Timer3.setPeriod(timePerMove);//check that this works and doesn't reset timer and break movement; consider an if to check if time per move = max
     }
     if (moveDirection == -1 && (currentPosition < homePosition + 1 || !(currentPosition > destinationPosition))) {
-      stop_move();
-    } else if (moveDirection == 1 && (currentPosition > (trueMax - 1) || !(currentPosition < destinationPosition))) {//used to have maxPosition instead of trueMax
+      stop_move(false);
+    } else if (moveDirection == 1 && (currentPosition > (maxPosition - 1) || !(currentPosition < destinationPosition))) {
       if (retract == true) {
         destinationPosition = homePosition;
         timePerMove = 1200;
         maxTimePerMove = 1000;
-        stop_move();
+        stop_move(false);
         delay(100);
         start_move(false, 1200);
       } else if (manual == true && currentPosition < (trueMax) && currentPosition < destinationPosition) {
         //avoid setting to false while the user is moving past the previously set bottom dip point
       } else {
-        stop_move();
+        stop_move(false);
       }
     }
   }
