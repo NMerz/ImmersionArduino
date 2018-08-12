@@ -422,11 +422,11 @@ void setup() {
   Serial.println("Home");
   currentPosition = -moveSize * 3;
   tmc_write(WRITE_FLAG | REG_CHOPCONF,   0x07008008UL); //microsteps, MRES=0, TBL=1=24, TOFF=8
-  goHome();
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
   drawMainScreen(true);
+  goHome();
   settingUp = false;
 }
 
@@ -478,9 +478,13 @@ void timerDone() {
 
 void goHome() {
   timePerMove = 1200; // in microseconds
-  maxTimePerMove = 1000; //in microseconds
-  if (currentPosition == homePosition) {
+  maxTimePerMove = 1200; //in microseconds
+  if (currentPosition == homePosition || abs(currentPosition-homePosition) < trueMax/7600) { //second bit bit may be usful for rare dancing around home, but it might also confuse the user if it doesn't return home after small movememtns
   } else {
+    if (abs(currentPosition-homePosition) < moveSize*3){
+      timePerMove = 2400;
+      maxTimePerMove = 2400;
+    }
     bool movingforward = true;
     destinationPosition = homePosition;
     if (destinationPosition < currentPosition) {
@@ -564,16 +568,6 @@ void updateTime() {
   timeCharToInt();
 }
 
-/*void timeShiftLeft() {
-  time = time/1000;
-  int calcMin = time / 60;
-  int calcSec = time % 60;
-  time = (calcMin % 10) * 600;
-  time += (calcSec / 10) * 60;
-  time += (calcSec % 10) * 10;
-  time = time*1000;
-}*/
-
 void drawMainScreen(bool background) {
   if (background) {
     tft.fillScreen(BLACK);
@@ -654,14 +648,14 @@ void loop() {
   //pinMode(YM, OUTPUT);
   if (p.z > MINPRESSURE) { // && p.z < MAXPRESSURE) {
     // scale from 0->1023 to tft.width
-    Serial.println("real touch:");
+    //Serial.println("real touch:");
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
-    Serial.println(p.x);
+    //Serial.println(p.x);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
-    Serial.println(p.y);
+    //Serial.println(p.y);
     for (uint8_t b = 0; b < numOfButtons; b++) {
       if (buttons[b].contains(p.x, p.y)) {
-        Serial.println(b);
+        //Serial.println(b);
         //Serial.print("Pressing: "); Serial.println(b);
         if (b == 16 && moving == true) {
           stop_move(true);
@@ -687,6 +681,8 @@ void loop() {
             } else {
               timedMove(time);
             }
+            b = numOfButtons;
+            delay(100);
           } else if (b == 13 || b == 14) {
             manual = true;
             retract = false;
@@ -698,6 +694,8 @@ void loop() {
             updateTime();
           }
           buttonPressed = b; // tell the button it is pressed to avoid repeating number buttons
+        }
+        if (b != 10){
           b = numOfButtons;
         }
       }
@@ -705,7 +703,7 @@ void loop() {
         buttonPressed = 100; //no button was pressed so set this to a number not representative of a button
       }
     }
-    delay(100);
+    //delay(100);
 
   } else {//this is a hack to check if the button remains pressed; if it isn't, the screen seems to just generate random coordinantes
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
@@ -783,7 +781,7 @@ void loop() {
   }
 }
 
-//Move time should start overflowing around 25 mintues; I could perhaps extend with an unsigned long
+//Move time should be good through 99:99
 void timedMove(unsigned long moveTime) {
   retract = true;
   /*if (moveTime < 30) {
@@ -801,7 +799,7 @@ void timedMove(unsigned long moveTime) {
     destinationPosition = 0;
     maxTimePerMove = 1000;
   }
-  if (maxTimePerMove < 600) {
+  if (maxTimePerMove < 600) { // should never reach here becauce I added a confirm evaluation before timedMove is ever called
     maxTimePerMove = 600; // this might be able to go a little faster, but this seems a good max, it should be about 20 sec for a full move
     String errorMessage[5] = {"The cart cannot", "move that fast.", "It will move", "at a slower", "speed."};
     confirm(&timeTooLow, errorMessage);
