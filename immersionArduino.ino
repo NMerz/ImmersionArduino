@@ -1,5 +1,5 @@
-#include <SimpleTimer.h>
-#include <Stepper.h>
+/// #include <SimpleTimer.h>
+/// #include <Stepper.h>
 #include <Elegoo_GFX.h> // Core graphics library
 #include <Elegoo_TFTLCD.h> // Hardware-specific library
 #include <TouchScreen.h>
@@ -123,7 +123,7 @@ uint8_t textfield_i = 0;
 #define REG_DCCTRL     0x6E
 #define REG_DRVSTATUS  0x6F
 
-long time = 80000; //time of move in milliseconds
+long gCurrentMoveTime = 80000; //time of move in milliseconds
 
 Elegoo_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
@@ -147,11 +147,11 @@ uint16_t buttoncolors[numOfButtons] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9
 
 char timeChar[6] = {'0', ' 1', ':', '2', '0', 0};
 long elapsedTime = 0;
-long timeToMove = 0; //total move time in seconds
+/// long timeToMove = 0; //total move time in seconds
 long timePerMove = 1200; // in microseconds
 long maxTimePerMove = 600; //in mircroseconds
 bool retract = false;
-SimpleTimer timer;
+/// SimpleTimer timer;
 volatile long currentPosition = 0;
 int stepsToLower = 100; //will soon not be needed, or should be changed to milliseconds to raise/lower
 int moveDirection = 1;
@@ -171,6 +171,17 @@ bool settingUp = true;
 int maxSpeed = 360; //this seems to be safe but I've accidentally taken it up to 460 and it worked fine with the acceleration
 //Stepper actuator(3200, 49, 47);
 
+/////////////////////////////
+/// Definitions of functions
+void step_motor();
+void playTune(int notes[], int durations[], int BPM);
+void drawMainScreen(bool background);
+void goHome();
+void updateTime();
+void timedMove(unsigned long moveTime);
+/////////////////////////////
+
+
 uint8_t tmc_write(uint8_t cmd, uint32_t data)
 {
   uint8_t s;
@@ -186,14 +197,6 @@ uint8_t tmc_write(uint8_t cmd, uint32_t data)
   digitalWrite(CS_PIN, HIGH);
 
   return s;
-}
-
-void eepromWriteLong(int startByte, long value)
-{
-  EEPROM.write(startByte, (value >> 24UL) & 0xFF);
-  EEPROM.write(startByte + 1, (value >> 16UL) & 0xFF);
-  EEPROM.write(startByte + 2, (value >> 8UL) & 0xFF);
-  EEPROM.write(startByte + 3, (value >> 0UL) & 0xFF);
 }
 
 uint8_t tmc_read(uint8_t cmd, uint32_t *data)
@@ -218,15 +221,6 @@ uint8_t tmc_read(uint8_t cmd, uint32_t *data)
   return s;
 }
 
-long eepromReadLong(int startByte)
-{
-  long returnValue = 0;
-  returnValue += EEPROM.read(startByte) << 24UL;
-  returnValue += EEPROM.read(startByte + 1) << 16UL;
-  returnValue += EEPROM.read(startByte + 2) << 8UL;
-  returnValue += EEPROM.read(startByte + 3) << 0UL;
-  return returnValue;
-}
 
 /*void stop_ISR() {
   //if (buttons[2].isPressed() || buttons[2].justPressed()) {
@@ -237,7 +231,9 @@ long eepromReadLong(int startByte)
 
 }*/
 
+
 void start_move(boolean forward, long interval) {
+  Serial.println("Start_move");
   if (!settingUp) {
     buttons[16].drawButton();
   }
@@ -267,19 +263,25 @@ void stop_move(bool button) {
   digitalWrite(EN_PIN, HIGH);
   manual = false;
   retract = false;
-  if (!settingUp) {
+  
+   Serial.print("currentPosition:");
+  Serial.println(currentPosition);
+
+ if (!settingUp) {
     buttons[10].drawButton();
   }
   if (!button && timedMovement == true) {
     playTune(melody, durations, tempo);
   }
   timedMovement = false;
+
 }
 uint16_t norun = 0;
 
 void setup() {
   Serial.println(norun);
-  maxPosition =  eepromReadLong(0);
+  //maxPosition = eepromReadLong(0);  // This was not working for greater than 15 bits
+  EEPROM.get(0,maxPosition);
 
   pinMode(EN_PIN, OUTPUT);
   digitalWrite(EN_PIN, HIGH); //deactivate driver (LOW active)
@@ -299,6 +301,8 @@ void setup() {
   // currentPosition = analogRead(sensorPin);
   Serial.begin(9600);
   Serial.println("starting");
+  Serial.print("maxPosition:");
+  Serial.println(maxPosition);
   //actuator.setSpeed(120);
 
   SPI.begin();
@@ -425,14 +429,15 @@ void setup() {
   int notFirstRow = 0;
   Serial.println("screen");
   // create buttons
-  drawMainScreen(true);
   goHome();
+  tft.fillScreen(BLACK);
+  drawMainScreen(true);
   settingUp = false;
 }
 
 bool isTimeTooLow() {
   unsigned long minMoveTime = maxTimePerMove * (maxPosition - currentPosition) / 1000000 + 1;
-  if (minMoveTime > time / 1000 + 1) {
+  if (minMoveTime > gCurrentMoveTime / 1000 + 1) {
     return true;
   }
   return false;
@@ -466,7 +471,7 @@ void timeTooLow() {
     counterT--;
   }
   updateTime();
-  timedMove(time);
+  timedMove(gCurrentMoveTime);
 }
 
 void timerDone() {
@@ -515,7 +520,8 @@ void setEnd() {
   if (maxPosition < moveSize) {
     maxPosition = moveSize;
   }
-  eepromWriteLong(0, maxPosition);
+  //  eepromWriteLong(0, maxPosition); // This was not working for numbers over 15 bit
+  EEPROM.put(0, maxPosition);
 }
 
 void playTune(int notes[], int durations[], int BPM)
@@ -542,20 +548,20 @@ void playTune(int notes[], int durations[], int BPM)
 }
 
 void timeCharToInt() {
-  time = 0;
+  gCurrentMoveTime = 0;
   if (timeChar[0] != ' ') {
-    time += (timeChar[0] - '0') * 600;
+    gCurrentMoveTime += (timeChar[0] - '0') * 600;
   }
   if (timeChar[1] != ' ') {
-    time += (timeChar[1] - '0') * 60;
+    gCurrentMoveTime += (timeChar[1] - '0') * 60;
   }
   if (timeChar[3] != ' ') {
-    time += (timeChar[3] - '0') * 10;
+    gCurrentMoveTime += (timeChar[3] - '0') * 10;
   }
   if (timeChar[4] != ' ') {
-    time += (timeChar[4] - '0');
+    gCurrentMoveTime += (timeChar[4] - '0');
   }
-  time *= 1000;
+  gCurrentMoveTime *= 1000;
 }
 
 void updateTime() {
@@ -570,17 +576,21 @@ void updateTime() {
 
 void drawMainScreen(bool background) {
   if (background) {
-    tft.fillScreen(BLACK);
+  /////  tft.fillScreen(BLACK);
+  // Instead of erasing the whole screen just erase where the dialog box has been
+    tft.fillRoundRect(22, 68, 196, 206, 5, BLACK);
+
   }
 
-  for (uint8_t number = 0; number < numOfButtons - 1; number++) { //last button is stop button and I don't want to draw it in general draw time every time
+  tft.fillRoundRect(13, 21, 144, 56, 5, ILI9341_WHITE);
+  updateTime();
+
+ for (uint8_t number = 0; number < numOfButtons - 1; number++) { //last button is stop button and I don't want to draw it in general draw time every time
     buttons[number].drawButton();
   }
   if (moving == true) {
     buttons[16].drawButton();
   }
-  tft.fillRoundRect(13, 21, 144, 56, 5, ILI9341_WHITE);
-  updateTime();
 }
 
 #define MINPRESSURE 10
@@ -633,10 +643,17 @@ void confirm(void methodToCall(), String printMe[5]) {
     }
   }
 }
+
+/////////////////////////////////////////////////////////
+//
+// loop()
+//
+/////////////////////////////////////////////////////////
 int buttonPressed = 100;
+
 void loop() {
   //manual = false;
-  timer.run();
+  /// timer.run();
   digitalWrite(13, HIGH);
   TSPoint p = ts.getPoint();
   digitalWrite(13, LOW);
@@ -648,15 +665,15 @@ void loop() {
   //pinMode(YM, OUTPUT);
   if (p.z > MINPRESSURE) { // && p.z < MAXPRESSURE) {
     // scale from 0->1023 to tft.width
-    //Serial.println("real touch:");
+    Serial.println("real touch:");
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
-    //Serial.println(p.x);
+    Serial.println(p.x);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
-    //Serial.println(p.y);
+    Serial.println(p.y);
     for (uint8_t b = 0; b < numOfButtons; b++) {
       if (buttons[b].contains(p.x, p.y)) {
         //Serial.println(b);
-        //Serial.print("Pressing: "); Serial.println(b);
+        Serial.print("Pressing: "); Serial.println(b);
         if (b == 16 && moving == true) {
           stop_move(true);
           delay(200);
@@ -674,12 +691,16 @@ void loop() {
             confirm(functionHolder, confirmMessage);
           } else if (b == 12) {
             goHome();
-          } else if (b == 10) {
+          } else if (b == 10) { // Start Button
+            // It is important to reset the max speed here before any new moves
+             maxTimePerMove = 1200; /// JWM test
+  
+
             if (isTimeTooLow()) {
               String confirmMessage[5] = { "The entered", "time is too", "fast.", "Move at a", "slower speed?"};
               confirm(&timeTooLow, confirmMessage);
             } else {
-              timedMove(time);
+              timedMove(gCurrentMoveTime);
             }
             b = numOfButtons;
             delay(100);
@@ -707,17 +728,17 @@ void loop() {
 
   } else {//this is a hack to check if the button remains pressed; if it isn't, the screen seems to just generate random coordinantes
     p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
-    Serial.println(p.x);
+    /// Serial.println(p.x);
     p.y = (tft.height() - map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
-    Serial.println(p.y);
-    Serial.println(p.z);
+    /// Serial.println(p.y);
+    /// Serial.println(p.z);
     if (!buttons[buttonPressed].contains(p.x, p.y)) {
       buttonPressed = 100; //no button was pressed so set this to a number not representative of a button
     }
   }
 
 
-
+  // Handle the jog shuttle
   if (moving == false || manual == true) {
     if (buttonPressed == 14) {
       moveCart(1, 1);
